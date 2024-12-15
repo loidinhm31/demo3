@@ -46,7 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name: response.name,
       provider: "LOCAL",
       roles: ["ROLE_USER"],
-      enabled: true
+      enabled: true,
     });
   };
 
@@ -82,9 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-      <AuthContext.Provider value={{ user, login, register, logout, isLoading, error }}>
-        {children}
-      </AuthContext.Provider>
+    <AuthContext.Provider value={{ user, login, register, logout, isLoading, error }}>{children}</AuthContext.Provider>
   );
 };
 

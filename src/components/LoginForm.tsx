@@ -1,30 +1,17 @@
-import React from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { LoginRequest } from '@/types/auth';
+import React from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { LoginRequest } from "@/types/auth";
 
 // Zod schema for form validation
 const loginSchema = z.object({
-  email: z
-    .string()
-    .min(1, 'Email is required')
-    .email('Invalid email format'),
-  password: z
-    .string()
-    .min(1, 'Password is required')
-    .min(6, 'Password must be at least 6 characters'),
+  email: z.string().min(1, "Email is required").email("Invalid email format"),
+  password: z.string().min(1, "Password is required").min(6, "Password must be at least 6 characters"),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
@@ -40,8 +27,8 @@ const LoginForm = React.memo(({ onSubmit, isLoading }: LoginFormProps) => {
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: '',
-      password: '',
+      email: "",
+      password: "",
     },
   });
 
@@ -56,7 +43,7 @@ const LoginForm = React.memo(({ onSubmit, isLoading }: LoginFormProps) => {
       // Explicitly type the reset values to match form fields
       form.reset({
         email: values.email,
-        password: '',
+        password: "",
       } as LoginFormValues);
     }
   };
@@ -71,13 +58,7 @@ const LoginForm = React.memo(({ onSubmit, isLoading }: LoginFormProps) => {
             <FormItem>
               <FormLabel>Email</FormLabel>
               <FormControl>
-                <Input
-                  type="email"
-                  placeholder="your@email.com"
-                  {...field}
-                  disabled={isLoading}
-                  autoComplete="email"
-                />
+                <Input type="email" placeholder="your@email.com" {...field} disabled={isLoading} autoComplete="email" />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -105,21 +86,12 @@ const LoginForm = React.memo(({ onSubmit, isLoading }: LoginFormProps) => {
         />
 
         <div className="flex items-center justify-end">
-          <Button
-            type="button"
-            variant="link"
-            className="px-0"
-            onClick={() => navigate('/forgot-password')}
-          >
+          <Button type="button" variant="link" className="px-0" onClick={() => navigate("/forgot-password")}>
             Forgot password?
           </Button>
         </div>
 
-        <Button
-          type="submit"
-          className="w-full"
-          disabled={isLoading}
-        >
+        <Button type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? "Signing in..." : "Sign in"}
         </Button>
       </form>
@@ -127,6 +99,6 @@ const LoginForm = React.memo(({ onSubmit, isLoading }: LoginFormProps) => {
   );
 });
 
-LoginForm.displayName = 'LoginForm';
+LoginForm.displayName = "LoginForm";
 
 export default LoginForm;

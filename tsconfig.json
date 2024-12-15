@@ -7,9 +7,6 @@
       "DOM.Iterable",
       "ESNext"
     ],
-    "paths": {
-      "@/*": ["./src/*"]
-    },
     "allowJs": false,
     "skipLibCheck": true,
     "esModuleInterop": false,
@@ -17,11 +14,16 @@
     "strict": false,
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "types": ["node"]
   },
   "include": [
     "**/*.ts",
