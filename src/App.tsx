@@ -1,15 +1,25 @@
-import { BrowserRouter } from "react-router-dom";
-import { Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "@/context/AuthContext";
-import { getRoutes } from "@/core/routeConfig";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "@/context/auth-context";
+import { getRoutes } from "@/core/route-config";
+import ProtectedRoute from "@/components/protected-route";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
 
 // Lazy load components
 import { Suspense } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from "./components/ui/breadcrumb";
+import { Separator } from "@radix-ui/react-separator";
 
 const LoadingFallback = () => (
   <div className="flex h-screen w-full items-center justify-center">
@@ -20,6 +30,39 @@ const LoadingFallback = () => (
       </CardContent>
     </Card>
   </div>
+);
+
+const AuthenticatedLayout = ({ children }: { children: React.ReactNode }) => (
+  <SidebarProvider>
+    <AppSidebar />
+    <SidebarInset>
+      <header
+        className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+        <div className="flex items-center gap-2 px-4">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-2 h-4" />
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem className="hidden md:block">
+                <BreadcrumbLink href="#">
+                  Building Your Application
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="hidden md:block" />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Data Fetching</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+      </header>
+      <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+        <div className="min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min">
+          {children}
+        </div>
+      </div>
+    </SidebarInset>
+  </SidebarProvider>
 );
 
 export default function App() {
@@ -39,7 +82,9 @@ export default function App() {
                     element={
                       route.isSecure ? (
                         <ProtectedRoute>
-                          <Component />
+                          <AuthenticatedLayout>
+                            <Component />
+                          </AuthenticatedLayout>
                         </ProtectedRoute>
                       ) : (
                         <Component />

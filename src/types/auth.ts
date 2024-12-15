@@ -34,4 +34,6 @@ export interface User {
   provider: "LOCAL" | "GOOGLE";
   roles: string[];
   enabled: boolean;
+  imageUrl?: string | null;
+  providerId?: string | null;
 }

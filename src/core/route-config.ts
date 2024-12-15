@@ -1,7 +1,7 @@
 import React, { lazy, Suspense } from "react";
 
-const Login = lazy(() => import("@/pages/LoginPage"));
-const Home = lazy(() => import("@/pages/HomePage"));
+const Login = lazy(() => import("@/pages/login-page"));
+const Home = lazy(() => import("@/pages/home-page"));
 
 export interface Route {
   path: string;

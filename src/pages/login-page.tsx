@@ -1,13 +1,11 @@
 import React, { memo, useCallback, useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/context/AuthContext";
-import GoogleButton from "@/components/GoogleButton";
-import LoginForm from "@/components/LoginForm";
+import { useAuth } from "@/context/auth-context";
+import GoogleButton from "@/components/google-button";
+import LoginForm from "@/components/login-form";
 import { LoginRequest } from "@/types/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 
 const LoginPage = memo(() => {
