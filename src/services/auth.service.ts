@@ -68,6 +68,19 @@ class AuthService {
       throw new Error("Unable to refresh authentication. Please login again.");
     }
   }
+
+  async logout(): Promise<void> {
+    try {
+      await axiosInstance.post("/auth/logout");
+    } catch (error) {
+      console.error("Logout error:", error);
+      // Even if the server request fails, we should clear local storage
+    } finally {
+      // Always clear local storage
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+    }
+  }
 }
 
 export const authService = new AuthService();
