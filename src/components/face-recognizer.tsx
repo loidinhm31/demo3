@@ -31,6 +31,24 @@ const FaceRecognizer = () => {
         window.location.origin;
   };
 
+  // Helper function to convert image to grayscale
+  const convertToGrayscale = (canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+      data[i] = gray;     // R
+      data[i + 1] = gray; // G
+      data[i + 2] = gray; // B
+      // Keep alpha channel (data[i + 3]) unchanged
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+  };
+
   // Initialize MediaPipe Face Detector and Image Embedder
   useEffect(() => {
     const initializeModels = async () => {
@@ -81,6 +99,32 @@ const FaceRecognizer = () => {
       }
     };
   }, []);
+
+  // Helper function to crop image to face region
+  const cropToFaceRegion = (image, detection) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const padding = 40;
+    const box = detection.boundingBox;
+
+    canvas.width = box.width + (padding * 2);
+    canvas.height = box.height + (padding * 2);
+
+    ctx.drawImage(
+      image,
+      box.originX - padding,
+      box.originY - padding,
+      box.width + (padding * 2),
+      box.height + (padding * 2),
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+    return canvas;
+  };
 
   // Display detections on uploaded image
   const displayImageDetections = (detections, image) => {
@@ -157,32 +201,6 @@ const FaceRecognizer = () => {
     });
   };
 
-  // Helper function to crop image to face region
-  const cropToFaceRegion = (image, detection) => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    const padding = 40;
-    const box = detection.boundingBox;
-
-    canvas.width = box.width + (padding * 2);
-    canvas.height = box.height + (padding * 2);
-
-    ctx.drawImage(
-      image,
-      box.originX - padding,
-      box.originY - padding,
-      box.width + (padding * 2),
-      box.height + (padding * 2),
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-
-    return canvas;
-  };
-
   const handleFileUpload = async (event) => {
     const file = event.target.files?.[0];
     if (file && imageEmbedder && faceDetector) {
@@ -215,9 +233,18 @@ const FaceRecognizer = () => {
         // Display detections on the image
         displayImageDetections(detections.detections, img);
 
-        // Crop to face region and get embedding
+        // Crop to face region
         const faceCanvas = cropToFaceRegion(img, detections.detections[0]);
-        const result = await imageEmbedder.embed(faceCanvas);
+
+        // Create a copy for grayscale conversion
+        const grayscaleCanvas = document.createElement('canvas');
+        grayscaleCanvas.width = faceCanvas.width;
+        grayscaleCanvas.height = faceCanvas.height;
+        grayscaleCanvas.getContext('2d').drawImage(faceCanvas, 0, 0);
+
+        // Convert to grayscale for embedding
+        const grayscaleFace = convertToGrayscale(grayscaleCanvas);
+        const result = await imageEmbedder.embed(grayscaleFace);
         setUploadedImageEmbedding(result.embeddings[0]);
 
       } catch (error) {
@@ -401,9 +428,18 @@ const FaceRecognizer = () => {
           // Crop face from the unmirrored frame
           const faceCanvas = cropToFaceRegion(processingCanvas, detections.detections[0]);
 
-          // Get embedding for cropped face
+          // Create a copy for grayscale conversion
+          const grayscaleCanvas = document.createElement('canvas');
+          grayscaleCanvas.width = faceCanvas.width;
+          grayscaleCanvas.height = faceCanvas.height;
+          grayscaleCanvas.getContext('2d').drawImage(faceCanvas, 0, 0);
+
+          // Convert to grayscale for embedding
+          const grayscaleFace = convertToGrayscale(grayscaleCanvas);
+
+          // Get embedding for grayscale face
           const embedderResult = await imageEmbedder.embedForVideo(
-            faceCanvas,
+            grayscaleFace,
             startTimeMs
           );
 
@@ -473,14 +509,12 @@ const FaceRecognizer = () => {
                       alt="Uploaded reference"
                       className="max-h-full max-w-full object-contain"
                       ref={uploadedImageRef}
-                      onLoad={(e) => {
+                      onLoad={async (e) => {
                         if (uploadedImageRef.current && faceDetector) {
-                          faceDetector.detect(uploadedImageRef.current)
-                            .then(result => {
-                              if (result.detections?.length) {
-                                displayImageDetections(result.detections, e.target);
-                              }
-                            });
+                          const result = await faceDetector.detect(uploadedImageRef.current);
+                          if (result.detections?.length) {
+                            displayImageDetections(result.detections, e.target);
+                          }
                         }
                       }}
                     />
