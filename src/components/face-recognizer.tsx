@@ -1,27 +1,30 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { ImageEmbedder, FilesetResolver, FaceDetector } from '@mediapipe/tasks-vision';
-import { Upload, Camera } from 'lucide-react';
+import React, { useEffect, useRef, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { FaceDetector, FilesetResolver, ImageEmbedder } from "@mediapipe/tasks-vision";
+import { Camera, Upload } from "lucide-react";
+import { ImageProcessor } from "@/core/image-processor";
+
 
 const FaceRecognizer = () => {
-  const [imageEmbedder, setImageEmbedder] = useState(null);
-  const [faceDetector, setFaceDetector] = useState(null);
-  const [uploadedImageEmbedding, setUploadedImageEmbedding] = useState(null);
-  const [similarity, setSimilarity] = useState(null);
+  const [imageEmbedder, setImageEmbedder] = useState<any>(null);
+  const [faceDetector, setFaceDetector] = useState<any>(null);
+  const [uploadedImageEmbedding, setUploadedImageEmbedding] = useState<any>(null);
+  const [similarity, setSimilarity] = useState<number | null>(null);
   const [isWebcamEnabled, setIsWebcamEnabled] = useState(false);
-  const [uploadedImageUrl, setUploadedImageUrl] = useState('');
-  const [runningMode, setRunningMode] = useState('IMAGE');
+  const [uploadedImageUrl, setUploadedImageUrl] = useState("");
+  const [runningMode, setRunningMode] = useState("IMAGE");
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-  const videoRef = useRef(null);
-  const uploadedImageRef = useRef(null);
-  const canvasRef = useRef(null);
-  const uploadedImageCanvasRef = useRef(null);
-  const processingCanvasRef = useRef(null);
-  const animationRef = useRef(null);
+  const [error, setError] = useState("");
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const uploadedImageRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const uploadedImageCanvasRef = useRef<HTMLCanvasElement>(null);
+  const processingCanvasRef = useRef<HTMLCanvasElement>(null);
+  const animationRef = useRef<number | null>(null);
   const lastVideoTimeRef = useRef(-1);
-  const streamRef = useRef(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const getBaseUrl = () => {
     const isDev = import.meta.env.DEV;
@@ -31,30 +34,12 @@ const FaceRecognizer = () => {
         window.location.origin;
   };
 
-  // Helper function to convert image to grayscale
-  const convertToGrayscale = (canvas: HTMLCanvasElement) => {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-      data[i] = gray;     // R
-      data[i + 1] = gray; // G
-      data[i + 2] = gray; // B
-      // Keep alpha channel (data[i + 3]) unchanged
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-    return canvas;
-  };
-
   // Initialize MediaPipe Face Detector and Image Embedder
   useEffect(() => {
     const initializeModels = async () => {
       try {
         setIsLoading(true);
-        setError('');
+        setError("");
 
         const baseUrl = getBaseUrl();
         const vision = await FilesetResolver.forVisionTasks(
@@ -81,8 +66,8 @@ const FaceRecognizer = () => {
         setFaceDetector(detector);
         setImageEmbedder(embedder);
       } catch (error) {
-        console.error('Error initializing models:', error);
-        setError('Failed to initialize models. Please check console for details.');
+        console.error("Error initializing models:", error);
+        setError("Failed to initialize models. Please check console for details.");
       } finally {
         setIsLoading(false);
       }
@@ -100,42 +85,16 @@ const FaceRecognizer = () => {
     };
   }, []);
 
-  // Helper function to crop image to face region
-  const cropToFaceRegion = (image, detection) => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    const padding = 40;
-    const box = detection.boundingBox;
-
-    canvas.width = box.width + (padding * 2);
-    canvas.height = box.height + (padding * 2);
-
-    ctx.drawImage(
-      image,
-      box.originX - padding,
-      box.originY - padding,
-      box.width + (padding * 2),
-      box.height + (padding * 2),
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-
-    return canvas;
-  };
-
-  // Display detections on uploaded image
-  const displayImageDetections = (detections, image) => {
+  // Display detections functions remain the same as they work well
+  const displayImageDetections = (detections: any[], image: HTMLImageElement) => {
     const canvas = uploadedImageCanvasRef.current;
     const imageElement = uploadedImageRef.current;
     if (!canvas || !image || !imageElement) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
 
     // Get the container and image dimensions
-    const containerRect = imageElement.parentElement.getBoundingClientRect();
+    const containerRect = imageElement.parentElement!.getBoundingClientRect();
     const imageRect = imageElement.getBoundingClientRect();
 
     // Set canvas size to match the container
@@ -166,14 +125,12 @@ const FaceRecognizer = () => {
       const boxWidth = box.width * imageScale;
       const boxHeight = box.height * imageScale;
 
-      // Draw bounding box
-      ctx.strokeStyle = '#00FFFF';
+      ctx.strokeStyle = "#00FFFF";
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 5]);
       ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
 
-      // Draw confidence text
-      ctx.fillStyle = '#00FFFF';
+      ctx.fillStyle = "#00FFFF";
       const fontSize = Math.max(16 * imageScale, 12);
       ctx.font = `${fontSize}px Arial`;
       const confidence = Math.round(detection.categories[0].score * 100);
@@ -182,87 +139,25 @@ const FaceRecognizer = () => {
 
       // Draw keypoints if available
       if (detection.keypoints) {
-        detection.keypoints.forEach(keypoint => {
+        detection.keypoints.forEach((keypoint: any) => {
           const keypointX = imageX + (keypoint.x * imageRect.width);
           const keypointY = imageY + (keypoint.y * imageRect.height);
 
           ctx.beginPath();
-          ctx.arc(
-            keypointX,
-            keypointY,
-            3,
-            0,
-            2 * Math.PI
-          );
-          ctx.fillStyle = '#FF0000';
+          ctx.arc(keypointX, keypointY, 3, 0, 2 * Math.PI);
+          ctx.fillStyle = "#FF0000";
           ctx.fill();
         });
       }
     });
   };
 
-  const handleFileUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (file && imageEmbedder && faceDetector) {
-      setIsLoading(true);
-      setError('');
-      try {
-        const url = URL.createObjectURL(file);
-        setUploadedImageUrl(url);
-
-        // Switch detectors to IMAGE mode if needed
-        if (runningMode !== 'IMAGE') {
-          setRunningMode('IMAGE');
-          await Promise.all([
-            imageEmbedder.setOptions({ runningMode: 'IMAGE' }),
-            faceDetector.setOptions({ runningMode: 'IMAGE' })
-          ]);
-        }
-
-        // Load and process image
-        const img = new Image();
-        img.src = url;
-        await new Promise((resolve) => { img.onload = resolve; });
-
-        // Detect faces
-        const detections = await faceDetector.detect(img);
-        if (!detections.detections?.length) {
-          throw new Error('No face detected in the uploaded image');
-        }
-
-        // Display detections on the image
-        displayImageDetections(detections.detections, img);
-
-        // Crop to face region
-        const faceCanvas = cropToFaceRegion(img, detections.detections[0]);
-
-        // Create a copy for grayscale conversion
-        const grayscaleCanvas = document.createElement('canvas');
-        grayscaleCanvas.width = faceCanvas.width;
-        grayscaleCanvas.height = faceCanvas.height;
-        grayscaleCanvas.getContext('2d').drawImage(faceCanvas, 0, 0);
-
-        // Convert to grayscale for embedding
-        const grayscaleFace = convertToGrayscale(grayscaleCanvas);
-        const result = await imageEmbedder.embed(grayscaleFace);
-        setUploadedImageEmbedding(result.embeddings[0]);
-
-      } catch (error) {
-        console.error('Error processing uploaded image:', error);
-        setError(error.message || 'Failed to process uploaded image. Please try again.');
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  };
-
-  // Display detections on webcam feed
-  const displayVideoDetections = (detections) => {
+  const displayVideoDetections = (detections: any[]) => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
 
     // Match canvas size to video
     canvas.width = video.videoWidth;
@@ -278,10 +173,10 @@ const FaceRecognizer = () => {
 
     detections.forEach(detection => {
       const box = detection.boundingBox;
+      const padding = 20;
 
-      // Draw bounding box with increased padding
-      const padding = 40;
-      ctx.strokeStyle = '#00FFFF';
+      // Draw bounding box
+      ctx.strokeStyle = "#00FFFF";
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 5]);
       ctx.strokeRect(
@@ -293,7 +188,8 @@ const FaceRecognizer = () => {
 
       // Draw confidence text - adjust x position for mirrored display
       ctx.fillStyle = '#00FFFF';
-      ctx.font = '16px Arial';
+      ctx.fillStyle = "#00FFFF";
+      ctx.font = "16px Arial";
       const confidence = Math.round(detection.categories[0].score * 100);
       const text = `Confidence: ${confidence}%`;
       // Flip text direction for mirrored display
@@ -303,11 +199,11 @@ const FaceRecognizer = () => {
         -(box.originX - padding),
         box.originY - padding - 5
       );
-      ctx.scale(-1, 1); // Restore scale for next iteration
+      ctx.scale(-1, 1);
 
       // Draw keypoints if available
       if (detection.keypoints) {
-        detection.keypoints.forEach(keypoint => {
+        detection.keypoints.forEach((keypoint: any) => {
           ctx.beginPath();
           ctx.arc(
             keypoint.x * canvas.width,
@@ -316,7 +212,7 @@ const FaceRecognizer = () => {
             0,
             2 * Math.PI
           );
-          ctx.fillStyle = '#FF0000';
+          ctx.fillStyle = "#FF0000";
           ctx.fill();
         });
       }
@@ -325,14 +221,59 @@ const FaceRecognizer = () => {
     ctx.restore();
   };
 
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && imageEmbedder && faceDetector) {
+      setIsLoading(true);
+      setError("");
+      try {
+        const url = URL.createObjectURL(file);
+        setUploadedImageUrl(url);
+
+        if (runningMode !== "IMAGE") {
+          setRunningMode("IMAGE");
+          await Promise.all([
+            imageEmbedder.setOptions({ runningMode: "IMAGE" }),
+            faceDetector.setOptions({ runningMode: "IMAGE" })
+          ]);
+        }
+
+        const img = new Image();
+        img.src = url;
+        await new Promise((resolve) => {
+          img.onload = resolve;
+        });
+
+        const detections = await faceDetector.detect(img);
+        if (!detections.detections?.length) {
+          throw new Error("No face detected in the uploaded image");
+        }
+
+        displayImageDetections(detections.detections, img);
+
+        // Process image with minimal preprocessing
+        const processedFace = await ImageProcessor.processForEmbedding(img, detections.detections[0]);
+        const result = await imageEmbedder.embed(processedFace);
+        setUploadedImageEmbedding(result.embeddings[0]);
+
+      } catch (error: any) {
+        console.error("Error processing uploaded image:", error);
+        setError(error.message || "Failed to process uploaded image. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  // Webcam handling functions
   const enableWebcam = async () => {
     if (!imageEmbedder || !faceDetector || !videoRef.current) {
-      setError('Required elements not initialized');
+      setError("Required elements not initialized");
       return;
     }
 
     setIsLoading(true);
-    setError('');
+    setError("");
     try {
       // Reset video element if it already has a stream
       if (streamRef.current) {
@@ -359,32 +300,31 @@ const FaceRecognizer = () => {
       // Wait for video to be ready
       await new Promise<void>((resolve) => {
         const onLoadedMetadata = () => {
-          videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
+          videoElement.removeEventListener("loadedmetadata", onLoadedMetadata);
           resolve();
         };
-        videoElement.addEventListener('loadedmetadata', onLoadedMetadata);
+        videoElement.addEventListener("loadedmetadata", onLoadedMetadata);
       });
 
       // Start playing
       await videoElement.play();
 
-      // Switch to VIDEO mode
-      if (runningMode !== 'VIDEO') {
-        setRunningMode('VIDEO');
+      if (runningMode !== "VIDEO") {
+        setRunningMode("VIDEO");
         await Promise.all([
-          imageEmbedder.setOptions({ runningMode: 'VIDEO' }),
-          faceDetector.setOptions({ runningMode: 'VIDEO' })
+          imageEmbedder.setOptions({ runningMode: "VIDEO" }),
+          faceDetector.setOptions({ runningMode: "VIDEO" })
         ]);
       }
 
       setIsWebcamEnabled(true);
-    } catch (error) {
-      console.error('Error enabling webcam:', error);
+    } catch (error: any) {
+      console.error("Error enabling webcam:", error);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
       }
-      setError('Failed to enable webcam. Please ensure camera access is allowed and try again.');
+      setError("Failed to enable webcam. Please ensure camera access is allowed and try again.");
     } finally {
       setIsLoading(false);
     }
@@ -413,8 +353,8 @@ const FaceRecognizer = () => {
         const processingCanvas = processingCanvasRef.current;
         processingCanvas.width = video.videoWidth;
         processingCanvas.height = video.videoHeight;
-        const processingCtx = processingCanvas.getContext('2d');
-        processingCtx.drawImage(video, 0, 0);
+        const processingCtx = processingCanvas.getContext("2d");
+        processingCtx?.drawImage(video, 0, 0);
 
         // Detect faces using the unmirrored frame
         const detections = await faceDetector.detectForVideo(processingCanvas, startTimeMs);
@@ -425,21 +365,10 @@ const FaceRecognizer = () => {
         }
 
         if (detections.detections?.length) {
-          // Crop face from the unmirrored frame
-          const faceCanvas = cropToFaceRegion(processingCanvas, detections.detections[0]);
-
-          // Create a copy for grayscale conversion
-          const grayscaleCanvas = document.createElement('canvas');
-          grayscaleCanvas.width = faceCanvas.width;
-          grayscaleCanvas.height = faceCanvas.height;
-          grayscaleCanvas.getContext('2d').drawImage(faceCanvas, 0, 0);
-
-          // Convert to grayscale for embedding
-          const grayscaleFace = convertToGrayscale(grayscaleCanvas);
-
-          // Get embedding for grayscale face
+          // Process webcam frame with minimal preprocessing
+          const processedFace = await ImageProcessor.processForEmbedding(processingCanvas, detections.detections[0]);
           const embedderResult = await imageEmbedder.embedForVideo(
-            grayscaleFace,
+            processedFace,
             startTimeMs
           );
 
@@ -454,7 +383,7 @@ const FaceRecognizer = () => {
         }
       }
     } catch (error) {
-      console.error('Error in predictWebcam:', error);
+      console.error("Error in predictWebcam:", error);
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
@@ -510,10 +439,11 @@ const FaceRecognizer = () => {
                       className="max-h-full max-w-full object-contain"
                       ref={uploadedImageRef}
                       onLoad={async (e) => {
+                        const target = e.target as HTMLImageElement;
                         if (uploadedImageRef.current && faceDetector) {
-                          const result = await faceDetector.detect(uploadedImageRef.current);
+                          const result = await faceDetector.detect(target);
                           if (result.detections?.length) {
-                            displayImageDetections(result.detections, e.target);
+                            displayImageDetections(result.detections, target);
                           }
                         }
                       }}
@@ -531,11 +461,11 @@ const FaceRecognizer = () => {
                 <Button
                   variant="outline"
                   className="w-full"
-                  onClick={() => document.getElementById('fileInput').click()}
+                  onClick={() => document.getElementById("fileInput")?.click()}
                   disabled={isLoading}
                 >
                   <Upload className="mr-2 h-4 w-4" />
-                  {isLoading ? 'Processing...' : 'Upload Image'}
+                  {isLoading ? "Processing..." : "Upload Image"}
                 </Button>
                 <input
                   id="fileInput"
@@ -552,13 +482,13 @@ const FaceRecognizer = () => {
               <div className="relative h-[480px] bg-muted rounded-lg flex items-center justify-center">
                 <video
                   ref={videoRef}
-                  className={`absolute inset-0 w-full h-full object-contain rounded-lg ${!isWebcamEnabled ? 'hidden' : ''} scale-x-[-1]`}
+                  className={`absolute inset-0 w-full h-full object-contain rounded-lg ${!isWebcamEnabled ? "hidden" : ""} scale-x-[-1]`}
                   playsInline
                 />
                 <canvas
                   ref={canvasRef}
-                  className={`absolute inset-0 w-full h-full ${!isWebcamEnabled ? 'hidden' : ''}`}
-                  style={{ pointerEvents: 'none' }}
+                  className={`absolute inset-0 w-full h-full ${!isWebcamEnabled ? "hidden" : ""}`}
+                  style={{ pointerEvents: "none" }}
                 />
                 <canvas
                   ref={processingCanvasRef}
@@ -575,7 +505,7 @@ const FaceRecognizer = () => {
                 disabled={isWebcamEnabled || !uploadedImageEmbedding || isLoading}
               >
                 <Camera className="mr-2 h-4 w-4" />
-                {isLoading ? 'Initializing...' : 'Enable Webcam'}
+                {isLoading ? "Initializing..." : "Enable Webcam"}
               </Button>
             </div>
           </div>
