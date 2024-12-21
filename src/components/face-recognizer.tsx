@@ -17,6 +17,7 @@ const FaceRecognizer = () => {
   const videoRef = useRef(null);
   const uploadedImageRef = useRef(null);
   const canvasRef = useRef(null);
+  const uploadedImageCanvasRef = useRef(null);
   const processingCanvasRef = useRef(null);
   const animationRef = useRef(null);
   const lastVideoTimeRef = useRef(-1);
@@ -81,6 +82,81 @@ const FaceRecognizer = () => {
     };
   }, []);
 
+  // Display detections on uploaded image
+  const displayImageDetections = (detections, image) => {
+    const canvas = uploadedImageCanvasRef.current;
+    const imageElement = uploadedImageRef.current;
+    if (!canvas || !image || !imageElement) return;
+
+    const ctx = canvas.getContext('2d');
+
+    // Get the container and image dimensions
+    const containerRect = imageElement.parentElement.getBoundingClientRect();
+    const imageRect = imageElement.getBoundingClientRect();
+
+    // Set canvas size to match the container
+    canvas.width = containerRect.width;
+    canvas.height = containerRect.height;
+
+    // Calculate the actual image position and scale within the container
+    const imageScale = Math.min(
+      imageRect.width / image.naturalWidth,
+      imageRect.height / image.naturalHeight
+    );
+
+    // Calculate image position within container
+    const scaledWidth = image.naturalWidth * imageScale;
+    const scaledHeight = image.naturalHeight * imageScale;
+    const imageX = (containerRect.width - scaledWidth) / 2;
+    const imageY = (containerRect.height - scaledHeight) / 2;
+
+    // Clear previous drawings
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    detections.forEach(detection => {
+      const box = detection.boundingBox;
+
+      // Calculate scaled and positioned coordinates
+      const boxX = imageX + (box.originX * imageScale);
+      const boxY = imageY + (box.originY * imageScale);
+      const boxWidth = box.width * imageScale;
+      const boxHeight = box.height * imageScale;
+
+      // Draw bounding box
+      ctx.strokeStyle = '#00FFFF';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+      // Draw confidence text
+      ctx.fillStyle = '#00FFFF';
+      const fontSize = Math.max(16 * imageScale, 12);
+      ctx.font = `${fontSize}px Arial`;
+      const confidence = Math.round(detection.categories[0].score * 100);
+      const text = `Confidence: ${confidence}%`;
+      ctx.fillText(text, boxX, Math.max(boxY - 5, fontSize));
+
+      // Draw keypoints if available
+      if (detection.keypoints) {
+        detection.keypoints.forEach(keypoint => {
+          const keypointX = imageX + (keypoint.x * imageRect.width);
+          const keypointY = imageY + (keypoint.y * imageRect.height);
+
+          ctx.beginPath();
+          ctx.arc(
+            keypointX,
+            keypointY,
+            3,
+            0,
+            2 * Math.PI
+          );
+          ctx.fillStyle = '#FF0000';
+          ctx.fill();
+        });
+      }
+    });
+  };
+
   // Helper function to crop image to face region
   const cropToFaceRegion = (image, detection) => {
     const canvas = document.createElement('canvas');
@@ -107,6 +183,53 @@ const FaceRecognizer = () => {
     return canvas;
   };
 
+  const handleFileUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (file && imageEmbedder && faceDetector) {
+      setIsLoading(true);
+      setError('');
+      try {
+        const url = URL.createObjectURL(file);
+        setUploadedImageUrl(url);
+
+        // Switch detectors to IMAGE mode if needed
+        if (runningMode !== 'IMAGE') {
+          setRunningMode('IMAGE');
+          await Promise.all([
+            imageEmbedder.setOptions({ runningMode: 'IMAGE' }),
+            faceDetector.setOptions({ runningMode: 'IMAGE' })
+          ]);
+        }
+
+        // Load and process image
+        const img = new Image();
+        img.src = url;
+        await new Promise((resolve) => { img.onload = resolve; });
+
+        // Detect faces
+        const detections = await faceDetector.detect(img);
+        if (!detections.detections?.length) {
+          throw new Error('No face detected in the uploaded image');
+        }
+
+        // Display detections on the image
+        displayImageDetections(detections.detections, img);
+
+        // Crop to face region and get embedding
+        const faceCanvas = cropToFaceRegion(img, detections.detections[0]);
+        const result = await imageEmbedder.embed(faceCanvas);
+        setUploadedImageEmbedding(result.embeddings[0]);
+
+      } catch (error) {
+        console.error('Error processing uploaded image:', error);
+        setError(error.message || 'Failed to process uploaded image. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  // Display detections on webcam feed
   const displayVideoDetections = (detections) => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -154,54 +277,25 @@ const FaceRecognizer = () => {
         box.originY - padding - 5
       );
       ctx.scale(-1, 1); // Restore scale for next iteration
+
+      // Draw keypoints if available
+      if (detection.keypoints) {
+        detection.keypoints.forEach(keypoint => {
+          ctx.beginPath();
+          ctx.arc(
+            keypoint.x * canvas.width,
+            keypoint.y * canvas.height,
+            3,
+            0,
+            2 * Math.PI
+          );
+          ctx.fillStyle = '#FF0000';
+          ctx.fill();
+        });
+      }
     });
 
     ctx.restore();
-  };
-
-  const handleFileUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (file && imageEmbedder && faceDetector) {
-      setIsLoading(true);
-      setError('');
-      try {
-        const url = URL.createObjectURL(file);
-        setUploadedImageUrl(url);
-
-        // Switch detectors to IMAGE mode if needed
-        if (runningMode !== 'IMAGE') {
-          setRunningMode('IMAGE');
-          await Promise.all([
-            imageEmbedder.setOptions({ runningMode: 'IMAGE' }),
-            faceDetector.setOptions({ runningMode: 'IMAGE' })
-          ]);
-        }
-
-        // Load and process image
-        const img = new Image();
-        img.src = url;
-        await new Promise((resolve) => { img.onload = resolve; });
-
-        // Detect faces
-        const detections = await faceDetector.detect(img);
-        if (!detections.detections?.length) {
-          throw new Error('No face detected in the uploaded image');
-        }
-
-        // Crop to face region
-        const faceCanvas = cropToFaceRegion(img, detections.detections[0]);
-
-        // Get embedding of cropped face
-        const result = await imageEmbedder.embed(faceCanvas);
-        setUploadedImageEmbedding(result.embeddings[0]);
-
-      } catch (error) {
-        console.error('Error processing uploaded image:', error);
-        setError(error.message || 'Failed to process uploaded image. Please try again.');
-      } finally {
-        setIsLoading(false);
-      }
-    }
   };
 
   const enableWebcam = async () => {
@@ -356,12 +450,12 @@ const FaceRecognizer = () => {
   }, [isWebcamEnabled, imageEmbedder, faceDetector, uploadedImageEmbedding]);
 
   return (
-    <Card className="w-full max-w-3xl mx-auto">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>Face Recognition Comparison</CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
+      <CardContent className="w-full">
+        <div className="w-full space-y-4">
           {error && (
             <div className="p-4 bg-destructive/10 text-destructive rounded-lg">
               <p>{error}</p>
@@ -371,18 +465,34 @@ const FaceRecognizer = () => {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <h3 className="text-lg font-medium">Reference Face</h3>
-              {uploadedImageUrl ? (
-                <img
-                  src={uploadedImageUrl}
-                  alt="Uploaded reference"
-                  className="w-full h-48 object-cover rounded-lg"
-                  ref={uploadedImageRef}
-                />
-              ) : (
-                <div className="w-full h-48 bg-muted flex items-center justify-center rounded-lg">
+              <div className="relative h-[480px] bg-muted rounded-lg flex items-center justify-center overflow-hidden">
+                {uploadedImageUrl ? (
+                  <div className="relative w-full h-full flex items-center justify-center">
+                    <img
+                      src={uploadedImageUrl}
+                      alt="Uploaded reference"
+                      className="max-h-full max-w-full object-contain"
+                      ref={uploadedImageRef}
+                      onLoad={(e) => {
+                        if (uploadedImageRef.current && faceDetector) {
+                          faceDetector.detect(uploadedImageRef.current)
+                            .then(result => {
+                              if (result.detections?.length) {
+                                displayImageDetections(result.detections, e.target);
+                              }
+                            });
+                        }
+                      }}
+                    />
+                    <canvas
+                      ref={uploadedImageCanvasRef}
+                      className="absolute inset-0 pointer-events-none"
+                    />
+                  </div>
+                ) : (
                   <p className="text-muted-foreground">No image uploaded</p>
-                </div>
-              )}
+                )}
+              </div>
               <div className="flex justify-center">
                 <Button
                   variant="outline"
@@ -405,15 +515,15 @@ const FaceRecognizer = () => {
 
             <div className="space-y-2">
               <h3 className="text-lg font-medium">Webcam Feed</h3>
-              <div className="relative">
+              <div className="relative h-[480px] bg-muted rounded-lg flex items-center justify-center">
                 <video
                   ref={videoRef}
-                  className={`w-full h-48 object-cover rounded-lg ${!isWebcamEnabled ? 'hidden' : ''} scale-x-[-1]`}
+                  className={`absolute inset-0 w-full h-full object-contain rounded-lg ${!isWebcamEnabled ? 'hidden' : ''} scale-x-[-1]`}
                   playsInline
                 />
                 <canvas
                   ref={canvasRef}
-                  className={`absolute top-0 left-0 w-full h-full ${!isWebcamEnabled ? 'hidden' : ''}`}
+                  className={`absolute inset-0 w-full h-full ${!isWebcamEnabled ? 'hidden' : ''}`}
                   style={{ pointerEvents: 'none' }}
                 />
                 <canvas
@@ -421,9 +531,7 @@ const FaceRecognizer = () => {
                   className="hidden"
                 />
                 {!isWebcamEnabled && (
-                  <div className="w-full h-48 bg-muted flex items-center justify-center rounded-lg">
-                    <p className="text-muted-foreground">Webcam not enabled</p>
-                  </div>
+                  <p className="text-muted-foreground">Webcam not enabled</p>
                 )}
               </div>
               <Button
