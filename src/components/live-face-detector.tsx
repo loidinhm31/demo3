@@ -76,30 +76,46 @@ const FaceLandmarkDetector = () => {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw background oval
+    // Draw background oval with shadow
+    ctx.save();
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+
+    // Draw dashed background oval in red
     ctx.beginPath();
     ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
-    ctx.strokeStyle = "#E5E4E2";
-    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#E0115F";
+    ctx.lineWidth = 15;
+    ctx.setLineDash([15, 10]);
     ctx.stroke();
+    ctx.restore();
 
     // Draw red oval for multiple faces or face out of bounds
     if (isRed) {
+      ctx.save();
+      ctx.shadowColor = "#D22B2B";
+
       ctx.beginPath();
       ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
-      ctx.strokeStyle = "#FF4444";
-      ctx.lineWidth = 8;
+      ctx.strokeStyle = "#E0115F";
+      ctx.lineWidth = 15;
+      ctx.setLineDash([15, 10]);
       ctx.stroke();
+      ctx.restore();
 
       // Add warning text for multiple faces
       if (faceCount && faceCount > 1) {
         ctx.font = "30px Arial";
-        ctx.fillStyle = "#FF4444";
+        ctx.fillStyle = "#E0115F";
         ctx.textAlign = "center";
         ctx.fillText("Many faces detected", centerX, centerY - radiusY - 20);
       }
-    } else {
-      // Draw green progress
+    } else if (progress > 0) {
+      // Draw green progress with shadow
+      ctx.save();
+      ctx.shadowColor = "#355E3B";
+
       ctx.beginPath();
       ctx.ellipse(
         centerX,
@@ -110,9 +126,11 @@ const FaceLandmarkDetector = () => {
         -Math.PI / 2,
         (progress * 2 * Math.PI) - Math.PI / 2
       );
-      ctx.strokeStyle = "#4CAF50";
-      ctx.lineWidth = 8;
+      ctx.strokeStyle = "#50C878";
+      ctx.lineWidth = 15;
+      ctx.setLineDash([]); // Solid line for progress
       ctx.stroke();
+      ctx.restore();
     }
   };
 
