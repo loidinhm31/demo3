@@ -8,19 +8,20 @@ import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 const ChallengeType = {
   FACE_LEFT: "FACE_LEFT",
   FACE_RIGHT: "FACE_RIGHT",
+  FACE_UP: "FACE_UP",
+  FACE_DOWN: "FACE_DOWN",
   BLINK: "BLINK"
 } as const;
 
 const BlendshapeNames = {
   LEFT_EYE_BLINK: "eyeBlinkLeft",
-  RIGHT_EYE_BLINK: "eyeBlinkRight",
+  RIGHT_EYE_BLINK: "eyeBlinkRight"
 } as const;
 
-// Type definitions for better type safety
 type ChallengeType = typeof ChallengeType[keyof typeof ChallengeType];
 type DetectionResults = {
   faceBlendshapes?: Array<{ categories: Array<{ categoryName: string; score: number }> }>;
-  faceLandmarks?: Array<Array<{ x: number; y: number }>>;
+  faceLandmarks?: Array<Array<{ x: number; y: number; z: number }>>;
 };
 
 interface DrawOvalOptions {
@@ -31,7 +32,7 @@ interface DrawOvalOptions {
   isFaceInBounds: boolean;
 }
 
-const FaceChallenger: React.FC = () => {
+const LiveFaceDetector: React.FC = () => {
   const [faceLandmarker, setFaceLandmarker] = useState<FaceLandmarker | null>(null);
   const [isWebcamEnabled, setIsWebcamEnabled] = useState(false);
   const [runningMode, setRunningMode] = useState("IMAGE");
@@ -43,7 +44,6 @@ const FaceChallenger: React.FC = () => {
   const [currentChallengeIndex, setCurrentChallengeIndex] = useState(-1);
   const [verificationComplete, setVerificationComplete] = useState(false);
 
-  // Refs for managing various timers and elements
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -51,7 +51,6 @@ const FaceChallenger: React.FC = () => {
   const lastVerificationTimeRef = useRef(0);
   const challengeStartTimeRef = useRef<number | null>(null);
 
-  // Helper function to get base URL
   const getBaseUrl = (): string => {
     const isDev = import.meta.env.DEV;
     return isDev ? window.location.origin :
@@ -61,7 +60,13 @@ const FaceChallenger: React.FC = () => {
   };
 
   // Helper function to draw progress oval with challenge text
-  const drawProgressOval = ({ ctx, progress, isFaceOutbound, currentChallenge, isFaceInBounds }: DrawOvalOptions): void => {
+  const drawProgressOval = ({
+                              ctx,
+                              progress,
+                              isFaceOutbound,
+                              currentChallenge,
+                              isFaceInBounds
+                            }: DrawOvalOptions): void => {
     const canvas = ctx.canvas;
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
@@ -108,15 +113,33 @@ const FaceChallenger: React.FC = () => {
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       const text = !isFaceInBounds ? "Move face into frame" :
-        currentChallenge === ChallengeType.FACE_LEFT ? "Turn Left" :
-          currentChallenge === ChallengeType.FACE_RIGHT ? "Turn Right" :
-            "Blink";
+        getChallengeText(currentChallenge);
       ctx.fillText(text, centerX, centerY - radiusY - 20);
+    }
+
+    ctx.restore();
+  };
+
+  // Function to get challenge instruction text
+  const getChallengeText = (challenge: ChallengeType): string => {
+    switch (challenge) {
+      case ChallengeType.FACE_LEFT:
+        return "Turn Left";
+      case ChallengeType.FACE_RIGHT:
+        return "Turn Right";
+      case ChallengeType.FACE_UP:
+        return "Look Up";
+      case ChallengeType.FACE_DOWN:
+        return "Look Down";
+      case ChallengeType.BLINK:
+        return "Blink";
+      default:
+        return "";
     }
   };
 
   // Function to check if face is within oval bounds
-  const isFaceWithinOval = (landmarks: Array<{ x: number; y: number }>): boolean => {
+  const isFaceWithinOval = (landmarks: Array<{ x: number; y: number; z: number }>): boolean => {
     const canvas = canvasRef.current;
     if (!canvas) return false;
 
@@ -144,7 +167,10 @@ const FaceChallenger: React.FC = () => {
   };
 
   // Helper function to get blendshape value
-  const getBlendshapeValue = (blendshapes: Array<{ categoryName: string; score: number }>, categoryName: string): number => {
+  const getBlendshapeValue = (blendshapes: Array<{
+    categoryName: string;
+    score: number
+  }>, categoryName: string): number => {
     const category = blendshapes.find(b => b.categoryName === categoryName);
     return category ? category.score : 0;
   };
@@ -155,16 +181,25 @@ const FaceChallenger: React.FC = () => {
 
     const blendshapes = results.faceBlendshapes[0].categories;
     const currentChallenge = challenges[currentChallengeIndex];
+    const landmarks = results.faceLandmarks[0];
 
-    // Require minimum time between verifications for blink only
+    // Get the current time for verification timing
     const now = performance.now();
     if (currentChallenge === ChallengeType.BLINK && now - lastVerificationTimeRef.current < 1000) {
       return false;
     }
 
-    const landmarks = results.faceLandmarks[0];
+    // Calculate face dimensions and position
     const faceWidth = Math.abs(landmarks[234].x - landmarks[454].x);
     const faceCenterX = (landmarks[234].x + landmarks[454].x) / 2;
+
+    // Helper function to calculate vertical angle using nose and forehead landmarks
+    const calculateVerticalAngle = (): number => {
+      const noseTip = landmarks[4]; // Nose tip
+      const foreheadCenter = landmarks[10]; // Forehead center
+      const verticalDiff = noseTip.z - foreheadCenter.z;
+      return Math.atan2(verticalDiff, Math.abs(noseTip.y - foreheadCenter.y));
+    };
 
     // Check if face position is correct based on challenge type
     const checkPosition = (): boolean => {
@@ -179,6 +214,14 @@ const FaceChallenger: React.FC = () => {
           const noseOffset = (noseTip.x - faceCenterX) / faceWidth;
           return noseOffset < -0.5;
         }
+        case ChallengeType.FACE_UP: {
+          const angle = calculateVerticalAngle();
+          return angle < -0.3; // Threshold for looking up
+        }
+        case ChallengeType.FACE_DOWN: {
+          const angle = calculateVerticalAngle();
+          return angle > 0.06; // Threshold for looking down
+        }
         case ChallengeType.BLINK: {
           const leftBlink = getBlendshapeValue(blendshapes, BlendshapeNames.LEFT_EYE_BLINK);
           const rightBlink = getBlendshapeValue(blendshapes, BlendshapeNames.RIGHT_EYE_BLINK);
@@ -191,7 +234,7 @@ const FaceChallenger: React.FC = () => {
 
     const isInCorrectPosition = checkPosition();
 
-    // For face turning challenges
+    // For all face movement challenges except blink
     if (currentChallenge !== ChallengeType.BLINK) {
       if (checkPositionOnly) {
         return isInCorrectPosition;
@@ -204,14 +247,25 @@ const FaceChallenger: React.FC = () => {
       return false;
     }
 
-    // For blink challenge, return true immediately if correct
+    // For blink challenge
     return currentChallenge === ChallengeType.BLINK && isInCorrectPosition;
   };
 
   // Function to generate random challenges
   const generateRandomChallenges = (): void => {
-    const challengeTypes = [ChallengeType.FACE_LEFT, ChallengeType.FACE_RIGHT, ChallengeType.BLINK];
-    const shuffled = [...challengeTypes].sort(() => Math.random() - 0.5);
+    const allChallengeTypes = [
+      ChallengeType.FACE_LEFT,
+      ChallengeType.FACE_RIGHT,
+      ChallengeType.FACE_UP,
+      ChallengeType.FACE_DOWN,
+      ChallengeType.BLINK
+    ];
+
+    // Shuffle all challenges and pick first 3
+    const shuffled = [...allChallengeTypes]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3);
+
     setChallenges(shuffled);
     setCurrentChallengeIndex(-1);
     setVerificationComplete(false);
@@ -354,17 +408,11 @@ const FaceChallenger: React.FC = () => {
               if (timeInBounds > 1000) {
                 setCurrentChallengeIndex(0);
               }
-              drawProgressOval({
-                ctx,
-                progress: 0,
-                isFaceOutbound: !currentIsInBounds,
-                isFaceInBounds: currentIsInBounds
-              });
             } else if (currentChallengeIndex < challenges.length) {
               const currentChallenge = challenges[currentChallengeIndex];
               const now = performance.now();
 
-              // Calculate current progress for face turn challenges
+              // Calculate current progress for face movement challenges
               let currentProgress = 0;
               if (currentChallenge !== ChallengeType.BLINK) {
                 // Check if face is in correct position without completing the challenge
@@ -380,7 +428,7 @@ const FaceChallenger: React.FC = () => {
                 }
               }
 
-              // Draw progress oval with current calculated progress
+              // Draw progress oval with current progress
               drawProgressOval({
                 ctx,
                 progress: currentProgress,
@@ -453,7 +501,6 @@ const FaceChallenger: React.FC = () => {
     };
   }, [isWebcamEnabled, faceLandmarker, progress, isFaceInBounds, runningMode, challenges, currentChallengeIndex]);
 
-  // Render component
   return (
     <Card className="w-full">
       <CardHeader>
@@ -511,4 +558,4 @@ const FaceChallenger: React.FC = () => {
   );
 };
 
-export default FaceChallenger;
+export default LiveFaceDetector;
