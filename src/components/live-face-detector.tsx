@@ -108,12 +108,14 @@ const FaceLandmarkDetector = () => {
       ctx.stroke();
       ctx.restore();
 
-      // Add warning text for multiple faces
+      // Add warning text
+      ctx.font = "30px Arial";
+      ctx.fillStyle = "#C70039";
+      ctx.textAlign = "center";
       if (faceCount && faceCount > 1) {
-        ctx.font = "30px Arial";
-        ctx.fillStyle = "#C70039";
-        ctx.textAlign = "center";
         ctx.fillText("Many faces detected", centerX, centerY - radiusY - 20);
+      } else {
+        ctx.fillText("Move your face into frame", centerX, centerY - radiusY - 20);
       }
     } else if (progress > 0) {
       // Draw green progress with shadow
