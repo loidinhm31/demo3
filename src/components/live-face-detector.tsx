@@ -78,6 +78,7 @@ const FaceLandmarkDetector = () => {
 
     // Draw background oval with shadow
     ctx.save();
+    ctx.shadowColor = "#C0C0C0";
     ctx.shadowBlur = 20;
     ctx.shadowOffsetX = 2;
     ctx.shadowOffsetY = 2;
@@ -85,7 +86,7 @@ const FaceLandmarkDetector = () => {
     // Draw dashed background oval in red
     ctx.beginPath();
     ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
-    ctx.strokeStyle = "#E0115F";
+    ctx.strokeStyle = "#FFC000";
     ctx.lineWidth = 15;
     ctx.setLineDash([15, 10]);
     ctx.stroke();
@@ -94,11 +95,14 @@ const FaceLandmarkDetector = () => {
     // Draw red oval for multiple faces or face out of bounds
     if (isRed) {
       ctx.save();
-      ctx.shadowColor = "#D22B2B";
+      ctx.shadowColor = "#CC5500";
+      ctx.shadowBlur = 20;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 2;
 
       ctx.beginPath();
       ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
-      ctx.strokeStyle = "#E0115F";
+      ctx.strokeStyle = "#FFC000";
       ctx.lineWidth = 15;
       ctx.setLineDash([15, 10]);
       ctx.stroke();
@@ -107,14 +111,17 @@ const FaceLandmarkDetector = () => {
       // Add warning text for multiple faces
       if (faceCount && faceCount > 1) {
         ctx.font = "30px Arial";
-        ctx.fillStyle = "#E0115F";
+        ctx.fillStyle = "#C70039";
         ctx.textAlign = "center";
         ctx.fillText("Many faces detected", centerX, centerY - radiusY - 20);
       }
     } else if (progress > 0) {
       // Draw green progress with shadow
       ctx.save();
-      ctx.shadowColor = "#355E3B";
+      ctx.shadowColor = "#32CD32";
+      ctx.shadowBlur = 20;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 2;
 
       ctx.beginPath();
       ctx.ellipse(
@@ -126,7 +133,7 @@ const FaceLandmarkDetector = () => {
         -Math.PI / 2,
         (progress * 2 * Math.PI) - Math.PI / 2
       );
-      ctx.strokeStyle = "#50C878";
+      ctx.strokeStyle = "#32CD32";
       ctx.lineWidth = 15;
       ctx.setLineDash([]); // Solid line for progress
       ctx.stroke();
