@@ -4,27 +4,269 @@ import { Button } from "@/components/ui/button";
 import { Camera } from "lucide-react";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 
-const FaceLandmarkDetector = () => {
-  const [faceLandmarker, setFaceLandmarker] = useState<any>(null);
+// Constants for challenge types and blendshapes moved to separate objects
+const ChallengeType = {
+  FACE_LEFT: "FACE_LEFT",
+  FACE_RIGHT: "FACE_RIGHT",
+  BLINK: "BLINK"
+} as const;
+
+const BlendshapeNames = {
+  LEFT_EYE_BLINK: "eyeBlinkLeft",
+  RIGHT_EYE_BLINK: "eyeBlinkRight",
+} as const;
+
+// Type definitions for better type safety
+type ChallengeType = typeof ChallengeType[keyof typeof ChallengeType];
+type DetectionResults = {
+  faceBlendshapes?: Array<{ categories: Array<{ categoryName: string; score: number }> }>;
+  faceLandmarks?: Array<Array<{ x: number; y: number }>>;
+};
+
+interface DrawOvalOptions {
+  ctx: CanvasRenderingContext2D;
+  progress: number;
+  isFaceOutbound: boolean;
+  currentChallenge?: ChallengeType;
+  isFaceInBounds: boolean;
+}
+
+const FaceChallenger: React.FC = () => {
+  const [faceLandmarker, setFaceLandmarker] = useState<FaceLandmarker | null>(null);
   const [isWebcamEnabled, setIsWebcamEnabled] = useState(false);
   const [runningMode, setRunningMode] = useState("IMAGE");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(0);
   const [isFaceInBounds, setIsFaceInBounds] = useState(false);
-  const [multipleFacesDetected, setMultipleFacesDetected] = useState(false);
+  const [challenges, setChallenges] = useState<ChallengeType[]>([]);
+  const [currentChallengeIndex, setCurrentChallengeIndex] = useState(-1);
+  const [verificationComplete, setVerificationComplete] = useState(false);
 
+  // Refs for managing various timers and elements
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const progressStartTimeRef = useRef<number | null>(null);
+  const lastVerificationTimeRef = useRef(0);
+  const challengeStartTimeRef = useRef<number | null>(null);
 
-  const getBaseUrl = () => {
+  // Helper function to get base URL
+  const getBaseUrl = (): string => {
     const isDev = import.meta.env.DEV;
     return isDev ? window.location.origin :
       import.meta.env.BASE_URL ?
         new URL(import.meta.env.BASE_URL, window.location.origin).toString() :
         window.location.origin;
+  };
+
+  // Helper function to draw progress oval with challenge text
+  const drawProgressOval = ({ ctx, progress, isFaceOutbound, currentChallenge, isFaceInBounds }: DrawOvalOptions): void => {
+    const canvas = ctx.canvas;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const radiusX = canvas.width * 0.12;
+    const radiusY = canvas.height * 0.42;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw background oval with shadow
+    ctx.save();
+    ctx.shadowColor = "#C0C0C0";
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+
+    ctx.beginPath();
+    ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
+    ctx.strokeStyle = isFaceOutbound ? "#FFC000" : "#D3D3D3";
+    ctx.lineWidth = 10;
+    ctx.setLineDash([10, 5]);
+    ctx.stroke();
+
+    if (progress > 0) {
+      ctx.beginPath();
+      ctx.ellipse(
+        centerX,
+        centerY,
+        radiusX,
+        radiusY,
+        0,
+        -Math.PI / 2,
+        (progress * 2 * Math.PI) - Math.PI / 2
+      );
+      ctx.strokeStyle = "#32CD32";
+      ctx.lineWidth = 10;
+      ctx.setLineDash([]);
+      ctx.stroke();
+    }
+
+    // Draw challenge text
+    if (currentChallenge) {
+      ctx.font = "24px Arial";
+      ctx.fillStyle = "#FFFFFF";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      const text = !isFaceInBounds ? "Move face into frame" :
+        currentChallenge === ChallengeType.FACE_LEFT ? "Turn Left" :
+          currentChallenge === ChallengeType.FACE_RIGHT ? "Turn Right" :
+            "Blink";
+      ctx.fillText(text, centerX, centerY - radiusY - 20);
+    }
+  };
+
+  // Function to check if face is within oval bounds
+  const isFaceWithinOval = (landmarks: Array<{ x: number; y: number }>): boolean => {
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const radiusX = canvas.width * 0.15;
+    const radiusY = canvas.height * 0.4;
+
+    const faceOvalPoints = landmarks.slice(0, 36);
+    let pointsWithinBounds = 0;
+    const threshold = 1.2;
+
+    for (const point of faceOvalPoints) {
+      const faceX = point.x * canvas.width;
+      const faceY = point.y * canvas.height;
+      const normalizedX = (faceX - centerX) / radiusX;
+      const normalizedY = (faceY - centerY) / radiusY;
+      const distance = normalizedX * normalizedX + normalizedY * normalizedY;
+      if (distance <= threshold) {
+        pointsWithinBounds++;
+      }
+    }
+
+    return pointsWithinBounds >= faceOvalPoints.length * 0.8;
+  };
+
+  // Helper function to get blendshape value
+  const getBlendshapeValue = (blendshapes: Array<{ categoryName: string; score: number }>, categoryName: string): number => {
+    const category = blendshapes.find(b => b.categoryName === categoryName);
+    return category ? category.score : 0;
+  };
+
+  // Function to verify challenge completion
+  const verifyChallenge = (results: DetectionResults, checkPositionOnly = false): boolean => {
+    if (!results.faceBlendshapes?.length || !results.faceLandmarks?.length) return false;
+
+    const blendshapes = results.faceBlendshapes[0].categories;
+    const currentChallenge = challenges[currentChallengeIndex];
+
+    // Require minimum time between verifications for blink only
+    const now = performance.now();
+    if (currentChallenge === ChallengeType.BLINK && now - lastVerificationTimeRef.current < 1000) {
+      return false;
+    }
+
+    const landmarks = results.faceLandmarks[0];
+    const faceWidth = Math.abs(landmarks[234].x - landmarks[454].x);
+    const faceCenterX = (landmarks[234].x + landmarks[454].x) / 2;
+
+    // Check if face position is correct based on challenge type
+    const checkPosition = (): boolean => {
+      switch (currentChallenge) {
+        case ChallengeType.FACE_LEFT: {
+          const noseTip = landmarks[4];
+          const noseOffset = (noseTip.x - faceCenterX) / faceWidth;
+          return noseOffset > 0.5;
+        }
+        case ChallengeType.FACE_RIGHT: {
+          const noseTip = landmarks[4];
+          const noseOffset = (noseTip.x - faceCenterX) / faceWidth;
+          return noseOffset < -0.5;
+        }
+        case ChallengeType.BLINK: {
+          const leftBlink = getBlendshapeValue(blendshapes, BlendshapeNames.LEFT_EYE_BLINK);
+          const rightBlink = getBlendshapeValue(blendshapes, BlendshapeNames.RIGHT_EYE_BLINK);
+          return leftBlink > 0.5 && rightBlink > 0.5;
+        }
+        default:
+          return false;
+      }
+    };
+
+    const isInCorrectPosition = checkPosition();
+
+    // For face turning challenges
+    if (currentChallenge !== ChallengeType.BLINK) {
+      if (checkPositionOnly) {
+        return isInCorrectPosition;
+      }
+
+      if (isInCorrectPosition) {
+        const timeInPosition = challengeStartTimeRef.current ? (now - challengeStartTimeRef.current) : 0;
+        return timeInPosition >= 3000;
+      }
+      return false;
+    }
+
+    // For blink challenge, return true immediately if correct
+    return currentChallenge === ChallengeType.BLINK && isInCorrectPosition;
+  };
+
+  // Function to generate random challenges
+  const generateRandomChallenges = (): void => {
+    const challengeTypes = [ChallengeType.FACE_LEFT, ChallengeType.FACE_RIGHT, ChallengeType.BLINK];
+    const shuffled = [...challengeTypes].sort(() => Math.random() - 0.5);
+    setChallenges(shuffled);
+    setCurrentChallengeIndex(-1);
+    setVerificationComplete(false);
+  };
+
+  // Function to enable webcam
+  const enableWebcam = async (): Promise<void> => {
+    if (!faceLandmarker) {
+      setError("Face detection not initialized");
+      return;
+    }
+
+    if (verificationComplete) {
+      return;
+    }
+
+    setIsLoading(true);
+    setError("");
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        if (videoRef.current) videoRef.current.srcObject = null;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+
+      streamRef.current = stream;
+      if (!videoRef.current) return;
+
+      const videoElement = videoRef.current;
+      videoElement.srcObject = stream;
+      videoElement.playsInline = true;
+
+      await new Promise<void>((resolve) => {
+        videoElement.addEventListener("loadeddata", () => resolve(), { once: true });
+      });
+
+      await videoElement.play();
+      generateRandomChallenges();
+      setIsWebcamEnabled(true);
+    } catch (error) {
+      console.error("Error enabling webcam:", error);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      setError("Failed to enable webcam. Please ensure camera access is allowed.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Initialize MediaPipe Face Landmarker
@@ -46,7 +288,7 @@ const FaceLandmarkDetector = () => {
           },
           runningMode: "IMAGE",
           outputFaceBlendshapes: true,
-          numFaces: 2 // Keep this at 2 to detect multiple faces
+          numFaces: 1
         });
 
         setFaceLandmarker(landmarker);
@@ -67,156 +309,7 @@ const FaceLandmarkDetector = () => {
     };
   }, []);
 
-  const drawProgressOval = (ctx: CanvasRenderingContext2D, progress: number, isRed: boolean, faceCount?: number) => {
-    const canvas = ctx.canvas;
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    const radiusX = canvas.width * 0.15;
-    const radiusY = canvas.height * 0.4;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw background oval with shadow
-    ctx.save();
-    ctx.shadowColor = "#C0C0C0";
-    ctx.shadowBlur = 20;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
-
-    // Draw dashed background oval in red
-    ctx.beginPath();
-    ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
-    ctx.strokeStyle = "#FFC000";
-    ctx.lineWidth = 15;
-    ctx.setLineDash([15, 10]);
-    ctx.stroke();
-    ctx.restore();
-
-    // Draw red oval for multiple faces or face out of bounds
-    if (isRed) {
-      ctx.save();
-      ctx.shadowColor = "#CC5500";
-      ctx.shadowBlur = 20;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
-
-      ctx.beginPath();
-      ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
-      ctx.strokeStyle = "#FFC000";
-      ctx.lineWidth = 15;
-      ctx.setLineDash([15, 10]);
-      ctx.stroke();
-      ctx.restore();
-
-      // Add warning text
-      ctx.font = "30px Arial";
-      ctx.fillStyle = "#C70039";
-      ctx.textAlign = "center";
-      if (faceCount && faceCount > 1) {
-        ctx.fillText("Many faces detected", centerX, centerY - radiusY - 20);
-      } else {
-        ctx.fillText("Move your face into frame", centerX, centerY - radiusY - 20);
-      }
-    } else if (progress > 0) {
-      // Draw green progress with shadow
-      ctx.save();
-      ctx.shadowColor = "#32CD32";
-      ctx.shadowBlur = 20;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
-
-      ctx.beginPath();
-      ctx.ellipse(
-        centerX,
-        centerY,
-        radiusX,
-        radiusY,
-        0,
-        -Math.PI / 2,
-        (progress * 2 * Math.PI) - Math.PI / 2
-      );
-      ctx.strokeStyle = "#32CD32";
-      ctx.lineWidth = 15;
-      ctx.setLineDash([]); // Solid line for progress
-      ctx.stroke();
-      ctx.restore();
-    }
-  };
-
-  const isFaceWithinOval = (landmarks: { x: number; y: number }[], canvas: HTMLCanvasElement) => {
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    const radiusX = canvas.width * 0.15;
-    const radiusY = canvas.height * 0.4;
-
-    // Use points around the face oval for better detection
-    const faceOvalPoints = landmarks.slice(0, 36); // First 36 points define face oval
-
-    // Check if any point is too far outside the oval
-    let pointsWithinBounds = 0;
-    const threshold = 1.2; // Allow slight deviation from perfect oval
-
-    for (const point of faceOvalPoints) {
-      const faceX = point.x * canvas.width;
-      const faceY = point.y * canvas.height;
-
-      const normalizedX = (faceX - centerX) / radiusX;
-      const normalizedY = (faceY - centerY) / radiusY;
-      const distance = normalizedX * normalizedX + normalizedY * normalizedY;
-
-      if (distance <= threshold) {
-        pointsWithinBounds++;
-      }
-    }
-
-    // Consider face within bounds if most points are within the oval
-    return pointsWithinBounds >= faceOvalPoints.length;
-  };
-
-  const enableWebcam = async () => {
-    if (!faceLandmarker) {
-      setError("Face detection not initialized");
-      return;
-    }
-
-    setIsLoading(true);
-    setError("");
-    try {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      });
-
-      streamRef.current = stream;
-      const videoElement = videoRef.current;
-      videoElement.srcObject = stream;
-      videoElement.playsInline = true;
-
-      await new Promise<void>((resolve) => {
-        videoElement.addEventListener("loadeddata", () => resolve(), { once: true });
-      });
-
-      await videoElement.play();
-      setIsWebcamEnabled(true);
-    } catch (error) {
-      console.error("Error enabling webcam:", error);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-      }
-      setError("Failed to enable webcam. Please ensure camera access is allowed.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // Main prediction loop
   useEffect(() => {
     let isActive = true;
     let frameId: number | null = null;
@@ -235,7 +328,6 @@ const FaceLandmarkDetector = () => {
         return;
       }
 
-      // Update canvas size to match video
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
@@ -248,49 +340,104 @@ const FaceLandmarkDetector = () => {
 
       try {
         const results = await faceLandmarker.detectForVideo(video, startTimeMs);
-        const faceCount = results.faceLandmarks?.length || 0;
 
-        // Check for multiple faces
-        // Update state for UI feedback
-        setMultipleFacesDetected(faceCount > 1);
-
-        if (faceCount > 1) {
-          // Reset progress and show red oval when multiple faces are detected
-          progressStartTimeRef.current = null;
-          setProgress(0);
-          setIsFaceInBounds(false);
-          drawProgressOval(ctx, 0, true, faceCount);  // Pass actual face count
-        } else if (faceCount === 1) {
-          // Process single face normally
-          const currentIsInBounds = isFaceWithinOval(results.faceLandmarks[0], canvas);
+        if (results.faceLandmarks?.length === 1) {
+          const currentIsInBounds = isFaceWithinOval(results.faceLandmarks[0]);
           setIsFaceInBounds(currentIsInBounds);
 
           if (currentIsInBounds) {
-            if (!progressStartTimeRef.current) {
-              progressStartTimeRef.current = performance.now();
+            if (currentChallengeIndex === -1) {
+              if (!progressStartTimeRef.current) {
+                progressStartTimeRef.current = performance.now();
+              }
+              const timeInBounds = performance.now() - progressStartTimeRef.current;
+              if (timeInBounds > 1000) {
+                setCurrentChallengeIndex(0);
+              }
+              drawProgressOval({
+                ctx,
+                progress: 0,
+                isFaceOutbound: !currentIsInBounds,
+                isFaceInBounds: currentIsInBounds
+              });
+            } else if (currentChallengeIndex < challenges.length) {
+              const currentChallenge = challenges[currentChallengeIndex];
+              const now = performance.now();
+
+              // Calculate current progress for face turn challenges
+              let currentProgress = 0;
+              if (currentChallenge !== ChallengeType.BLINK) {
+                // Check if face is in correct position without completing the challenge
+                const isCorrectPos = verifyChallenge(results, true);
+                if (isCorrectPos) {
+                  if (!challengeStartTimeRef.current) {
+                    challengeStartTimeRef.current = now;
+                  }
+                  const timeInPosition = now - challengeStartTimeRef.current;
+                  currentProgress = Math.min(timeInPosition / 3000, 1); // 3 seconds for full progress
+                } else {
+                  challengeStartTimeRef.current = null;
+                }
+              }
+
+              // Draw progress oval with current calculated progress
+              drawProgressOval({
+                ctx,
+                progress: currentProgress,
+                isFaceOutbound: !currentIsInBounds,
+                currentChallenge,
+                isFaceInBounds: currentIsInBounds
+              });
+
+              // Check for challenge completion
+              if (verifyChallenge(results)) {
+                lastVerificationTimeRef.current = now;
+                challengeStartTimeRef.current = null;
+                setProgress(0);
+
+                if (currentChallengeIndex === challenges.length - 1) {
+                  setVerificationComplete(true);
+                  setCurrentChallengeIndex(-1);
+                  // Clean up webcam and stream when verification is complete
+                  if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current = null;
+                  }
+                  setIsWebcamEnabled(false);
+                } else {
+                  setCurrentChallengeIndex(prev => prev + 1);
+                }
+              }
             }
-            const elapsed = performance.now() - progressStartTimeRef.current;
-            const newProgress = Math.min(elapsed / 3000, 1);
-            setProgress(newProgress);
           } else {
             progressStartTimeRef.current = null;
+            challengeStartTimeRef.current = null;
             setProgress(0);
+            drawProgressOval({
+              ctx,
+              progress: 0,
+              isFaceOutbound: !currentIsInBounds,
+              currentChallenge: challenges[currentChallengeIndex],
+              isFaceInBounds: currentIsInBounds
+            });
           }
-
-          // Draw the oval with current progress
-          drawProgressOval(ctx, progress, !currentIsInBounds);
         } else {
-          // No faces detected
           progressStartTimeRef.current = null;
+          challengeStartTimeRef.current = null;
           setProgress(0);
           setIsFaceInBounds(false);
-          drawProgressOval(ctx, 0, false);
+          drawProgressOval({
+            ctx,
+            progress: 0,
+            isFaceOutbound: true,
+            currentChallenge: challenges[currentChallengeIndex],
+            isFaceInBounds: false
+          });
         }
       } catch (error) {
         console.error("Error in face detection:", error);
       }
 
-      // Continue the loop
       frameId = requestAnimationFrame(runPrediction);
     };
 
@@ -304,12 +451,13 @@ const FaceLandmarkDetector = () => {
         cancelAnimationFrame(frameId);
       }
     };
-  }, [isWebcamEnabled, faceLandmarker, progress, isFaceInBounds, runningMode]);
+  }, [isWebcamEnabled, faceLandmarker, progress, isFaceInBounds, runningMode, challenges, currentChallengeIndex]);
 
+  // Render component
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>Face Position Detection</CardTitle>
+        <CardTitle>Face Challenge Verification</CardTitle>
       </CardHeader>
       <CardContent className="w-full">
         <div className="w-full space-y-4">
@@ -331,18 +479,30 @@ const FaceLandmarkDetector = () => {
                 className={`absolute inset-0 w-full h-full ${!isWebcamEnabled ? "hidden" : ""}`}
                 style={{ pointerEvents: "none" }}
               />
-              {!isWebcamEnabled && (
+              {!isWebcamEnabled && !verificationComplete && (
                 <p className="text-muted-foreground">Webcam not enabled</p>
+              )}
+              {verificationComplete && (
+                <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
+                  <p className="text-3xl font-bold text-green-500">Verification Complete!</p>
+                </div>
               )}
             </div>
             <Button
               variant="outline"
               className="w-full"
-              onClick={enableWebcam}
+              onClick={() => {
+                if (verificationComplete) {
+                  setVerificationComplete(false);
+                  generateRandomChallenges();
+                }
+                enableWebcam();
+              }}
               disabled={isWebcamEnabled || isLoading}
             >
               <Camera className="mr-2 h-4 w-4" />
-              {isLoading ? "Initializing..." : "Enable Webcam"}
+              {isLoading ? "Initializing..." :
+                verificationComplete ? "Start New Verification" : "Start Verification"}
             </Button>
           </div>
         </div>
@@ -351,4 +511,4 @@ const FaceLandmarkDetector = () => {
   );
 };
 
-export default FaceLandmarkDetector;
+export default FaceChallenger;
