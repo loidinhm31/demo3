@@ -1,12 +1,19 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FaceDetector, FilesetResolver, ImageEmbedder } from "@mediapipe/tasks-vision";
 import { Camera, Upload } from "lucide-react";
 import { ImageProcessor } from "@/core/image-processor";
+import { cn } from "@/lib/utils";
 
+interface FaceRecognizerProps {
+  onRecognitionComplete?: () => void;
+  similarityThreshold?: number;
+}
 
-const FaceRecognizer = () => {
+const FaceRecognizer: React.FC<FaceRecognizerProps> = ({
+                                                         onRecognitionComplete,
+                                                         similarityThreshold = 0.8 // 80% similarity threshold by default
+                                                       }) => {
   const [imageEmbedder, setImageEmbedder] = useState<any>(null);
   const [faceDetector, setFaceDetector] = useState<any>(null);
   const [uploadedImageEmbedding, setUploadedImageEmbedding] = useState<any>(null);
@@ -16,6 +23,9 @@ const FaceRecognizer = () => {
   const [runningMode, setRunningMode] = useState("IMAGE");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isVerified, setIsVerified] = useState(false);
+  const [stableMatchStartTime, setStableMatchStartTime] = useState<number | null>(null);
+  const [verificationProgress, setVerificationProgress] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const uploadedImageRef = useRef<HTMLImageElement>(null);
@@ -25,6 +35,8 @@ const FaceRecognizer = () => {
   const animationRef = useRef<number | null>(null);
   const lastVideoTimeRef = useRef(-1);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const REQUIRED_STABLE_TIME = 3000; // 3 seconds of stable matching required
 
   const getBaseUrl = () => {
     const isDev = import.meta.env.DEV;
@@ -85,13 +97,44 @@ const FaceRecognizer = () => {
     };
   }, []);
 
-  // Display detections functions remain the same as they work well
+  // Effect for delayed verification
+  useEffect(() => {
+    if (similarity !== null && similarity >= similarityThreshold && !isVerified) {
+      const currentTime = Date.now();
+
+      if (!stableMatchStartTime) {
+        // Start counting stable time
+        setStableMatchStartTime(currentTime);
+      } else {
+        // Calculate how long we've had a stable match
+        const stableTime = currentTime - stableMatchStartTime;
+        const progress = Math.min((stableTime / REQUIRED_STABLE_TIME) * 100, 100);
+        setVerificationProgress(progress);
+
+        if (stableTime >= REQUIRED_STABLE_TIME) {
+          setIsVerified(true);
+          // Stop webcam when verification is complete
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+          }
+          setIsWebcamEnabled(false);
+          onRecognitionComplete?.();
+        }
+      }
+    } else {
+      // Reset stable match timer if similarity drops
+      setStableMatchStartTime(null);
+      setVerificationProgress(0);
+    }
+  }, [similarity, similarityThreshold, isVerified, onRecognitionComplete, stableMatchStartTime]);
+
   const displayImageDetections = (detections: any[], image: HTMLImageElement) => {
     const canvas = uploadedImageCanvasRef.current;
     const imageElement = uploadedImageRef.current;
     if (!canvas || !image || !imageElement) return;
 
     const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
     // Get the container and image dimensions
     const containerRect = imageElement.parentElement!.getBoundingClientRect();
@@ -130,6 +173,7 @@ const FaceRecognizer = () => {
       ctx.setLineDash([5, 5]);
       ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
 
+      // Draw confidence text
       ctx.fillStyle = "#00FFFF";
       const fontSize = Math.max(16 * imageScale, 12);
       ctx.font = `${fontSize}px Arial`;
@@ -158,6 +202,7 @@ const FaceRecognizer = () => {
     if (!canvas || !video) return;
 
     const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
     // Match canvas size to video
     canvas.width = video.videoWidth;
@@ -187,7 +232,6 @@ const FaceRecognizer = () => {
       );
 
       // Draw confidence text - adjust x position for mirrored display
-      ctx.fillStyle = '#00FFFF';
       ctx.fillStyle = "#00FFFF";
       ctx.font = "16px Arial";
       const confidence = Math.round(detection.categories[0].score * 100);
@@ -265,7 +309,6 @@ const FaceRecognizer = () => {
     }
   };
 
-  // Webcam handling functions
   const enableWebcam = async () => {
     if (!imageEmbedder || !faceDetector || !videoRef.current) {
       setError("Required elements not initialized");
@@ -331,7 +374,7 @@ const FaceRecognizer = () => {
   };
 
   const predictWebcam = async () => {
-    if (!videoRef.current || !imageEmbedder || !faceDetector || !uploadedImageEmbedding || !processingCanvasRef.current) {
+    if (!videoRef.current || !imageEmbedder || !faceDetector || !uploadedImageEmbedding || !processingCanvasRef.current || isVerified) {
       return;
     }
 
@@ -354,7 +397,9 @@ const FaceRecognizer = () => {
         processingCanvas.width = video.videoWidth;
         processingCanvas.height = video.videoHeight;
         const processingCtx = processingCanvas.getContext("2d");
-        processingCtx?.drawImage(video, 0, 0);
+        if (!processingCtx) return;
+
+        processingCtx.drawImage(video, 0, 0);
 
         // Detect faces using the unmirrored frame
         const detections = await faceDetector.detectForVideo(processingCanvas, startTimeMs);
@@ -414,112 +459,140 @@ const FaceRecognizer = () => {
     };
   }, [isWebcamEnabled, imageEmbedder, faceDetector, uploadedImageEmbedding]);
 
-  return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle>Face Recognition Comparison</CardTitle>
-      </CardHeader>
-      <CardContent className="w-full">
-        <div className="w-full space-y-4">
-          {error && (
-            <div className="p-4 bg-destructive/10 text-destructive rounded-lg">
-              <p>{error}</p>
-            </div>
-          )}
+  // Render similarity indicator with progress bar
+  const renderSimilarityIndicator = () => {
+    if (similarity === null) return null;
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <h3 className="text-lg font-medium">Reference Face</h3>
-              <div className="relative h-[480px] bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-                {uploadedImageUrl ? (
-                  <div className="relative w-full h-full flex items-center justify-center">
-                    <img
-                      src={uploadedImageUrl}
-                      alt="Uploaded reference"
-                      className="max-h-full max-w-full object-contain"
-                      ref={uploadedImageRef}
-                      onLoad={async (e) => {
-                        const target = e.target as HTMLImageElement;
-                        if (uploadedImageRef.current && faceDetector) {
-                          const result = await faceDetector.detect(target);
-                          if (result.detections?.length) {
-                            displayImageDetections(result.detections, target);
-                          }
-                        }
-                      }}
-                    />
-                    <canvas
-                      ref={uploadedImageCanvasRef}
-                      className="absolute inset-0 pointer-events-none"
-                    />
-                  </div>
-                ) : (
-                  <p className="text-muted-foreground">No image uploaded</p>
-                )}
+    const percentage = (similarity * 100).toFixed(1);
+    return (
+      <div className={cn(
+        "mt-4 p-4 rounded-lg",
+        isVerified ? "bg-green-500/10" : "bg-muted"
+      )}>
+        <div className="space-y-2">
+          <p className="text-center text-lg">
+            Similarity Score: {percentage}%
+            {isVerified && " - Verification Complete!"}
+          </p>
+
+          {!isVerified && similarity >= similarityThreshold && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-sm">
+                <span>Verifying...</span>
+                <span>{Math.round(verificationProgress)}%</span>
               </div>
-              <div className="flex justify-center">
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => document.getElementById("fileInput")?.click()}
-                  disabled={isLoading}
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  {isLoading ? "Processing..." : "Upload Image"}
-                </Button>
-                <input
-                  id="fileInput"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleFileUpload}
+              <div className="w-full bg-muted-foreground/20 rounded-full h-2">
+                <div
+                  className="bg-primary h-full rounded-full transition-all duration-300"
+                  style={{ width: `${verificationProgress}%` }}
                 />
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <h3 className="text-lg font-medium">Webcam Feed</h3>
-              <div className="relative h-[480px] bg-muted rounded-lg flex items-center justify-center">
-                <video
-                  ref={videoRef}
-                  className={`absolute inset-0 w-full h-full object-contain rounded-lg ${!isWebcamEnabled ? "hidden" : ""} scale-x-[-1]`}
-                  playsInline
-                />
-                <canvas
-                  ref={canvasRef}
-                  className={`absolute inset-0 w-full h-full ${!isWebcamEnabled ? "hidden" : ""}`}
-                  style={{ pointerEvents: "none" }}
-                />
-                <canvas
-                  ref={processingCanvasRef}
-                  className="hidden"
-                />
-                {!isWebcamEnabled && (
-                  <p className="text-muted-foreground">Webcam not enabled</p>
-                )}
-              </div>
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={enableWebcam}
-                disabled={isWebcamEnabled || !uploadedImageEmbedding || isLoading}
-              >
-                <Camera className="mr-2 h-4 w-4" />
-                {isLoading ? "Initializing..." : "Enable Webcam"}
-              </Button>
-            </div>
-          </div>
-
-          {similarity !== null && (
-            <div className="mt-4 p-4 bg-muted rounded-lg">
-              <p className="text-center text-lg">
-                Similarity Score: {(similarity * 100).toFixed(1)}%
-              </p>
             </div>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    );
+  };
+
+  return (
+    <div className="w-full space-y-4">
+      {error && (
+        <div className="p-4 bg-destructive/10 text-destructive rounded-lg">
+          <p>{error}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <h3 className="text-lg font-medium">Reference Face</h3>
+          <div className="relative h-[480px] bg-muted rounded-lg flex items-center justify-center overflow-hidden">
+            {uploadedImageUrl ? (
+              <div className="relative w-full h-full flex items-center justify-center">
+                <img
+                  src={uploadedImageUrl}
+                  alt="Uploaded reference"
+                  className="max-h-full max-w-full object-contain"
+                  ref={uploadedImageRef}
+                  onLoad={async (e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (uploadedImageRef.current && faceDetector) {
+                      const result = await faceDetector.detect(target);
+                      if (result.detections?.length) {
+                        displayImageDetections(result.detections, target);
+                      }
+                    }
+                  }}
+                />
+                <canvas
+                  ref={uploadedImageCanvasRef}
+                  className="absolute inset-0 pointer-events-none"
+                />
+              </div>
+            ) : (
+              <p className="text-muted-foreground">No image uploaded</p>
+            )}
+          </div>
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => document.getElementById("fileInput")?.click()}
+              disabled={isLoading || isVerified}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              {isLoading ? "Processing..." : "Upload Image"}
+            </Button>
+            <input
+              id="fileInput"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileUpload}
+              disabled={isVerified}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="text-lg font-medium">Webcam Feed</h3>
+          <div className="relative h-[480px] bg-muted rounded-lg flex items-center justify-center">
+            <video
+              ref={videoRef}
+              className={`absolute inset-0 w-full h-full object-contain rounded-lg ${!isWebcamEnabled ? "hidden" : ""} scale-x-[-1]`}
+              playsInline
+            />
+            <canvas
+              ref={canvasRef}
+              className={`absolute inset-0 w-full h-full ${!isWebcamEnabled ? "hidden" : ""}`}
+              style={{ pointerEvents: "none" }}
+            />
+            <canvas
+              ref={processingCanvasRef}
+              className="hidden"
+            />
+            {!isWebcamEnabled && !isVerified && (
+              <p className="text-muted-foreground">Webcam not enabled</p>
+            )}
+            {isVerified && (
+              <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
+                <p className="text-xl font-bold text-green-500">Face Verified!</p>
+              </div>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={enableWebcam}
+            disabled={isWebcamEnabled || !uploadedImageEmbedding || isLoading || isVerified}
+          >
+            <Camera className="mr-2 h-4 w-4" />
+            {isLoading ? "Initializing..." : "Enable Webcam"}
+          </Button>
+        </div>
+      </div>
+
+      {renderSimilarityIndicator()}
+    </div>
   );
 };
 

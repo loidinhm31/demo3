@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Camera } from "lucide-react";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import { Camera } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+
+import { Button } from "@/components/ui/button";
 
 // Constants for challenge types and blendshapes moved to separate objects
-const ChallengeType = {
+const ChallengeTypes = {
   FACE_LEFT: "FACE_LEFT",
   FACE_RIGHT: "FACE_RIGHT",
   FACE_UP: "FACE_UP",
@@ -18,7 +18,7 @@ const BlendshapeNames = {
   RIGHT_EYE_BLINK: "eyeBlinkRight"
 } as const;
 
-type ChallengeType = typeof ChallengeType[keyof typeof ChallengeType];
+type ChallengeType = typeof ChallengeTypes[keyof typeof ChallengeTypes];
 type DetectionResults = {
   faceBlendshapes?: Array<{ categories: Array<{ categoryName: string; score: number }> }>;
   faceLandmarks?: Array<Array<{ x: number; y: number; z: number }>>;
@@ -32,7 +32,12 @@ interface DrawOvalOptions {
   isFaceInBounds: boolean;
 }
 
-const LiveFaceDetector: React.FC = () => {
+
+interface LiveFaceDetectorProps {
+  onVerificationComplete?: () => void;
+}
+
+const LiveFaceDetector = ({ onVerificationComplete }: LiveFaceDetectorProps) => {
   const [faceLandmarker, setFaceLandmarker] = useState<FaceLandmarker | null>(null);
   const [isWebcamEnabled, setIsWebcamEnabled] = useState(false);
   const [runningMode, setRunningMode] = useState("IMAGE");
@@ -50,6 +55,17 @@ const LiveFaceDetector: React.FC = () => {
   const progressStartTimeRef = useRef<number | null>(null);
   const lastVerificationTimeRef = useRef(0);
   const challengeStartTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (verificationComplete) {
+      // Clean up webcam and stream
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      setIsWebcamEnabled(false);
+      onVerificationComplete?.();
+    }
+  }, [verificationComplete, onVerificationComplete]);
 
   const getBaseUrl = (): string => {
     const isDev = import.meta.env.DEV;
@@ -118,20 +134,28 @@ const LiveFaceDetector: React.FC = () => {
     }
 
     ctx.restore();
+
+    if (verificationComplete) {
+      ctx.font = "24px Arial";
+      ctx.fillStyle = "#22C55E"; // Green color
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText("Verification Complete!", centerX, centerY - radiusY - 20);
+    }
   };
 
   // Function to get challenge instruction text
   const getChallengeText = (challenge: ChallengeType): string => {
     switch (challenge) {
-      case ChallengeType.FACE_LEFT:
+      case ChallengeTypes.FACE_LEFT:
         return "Turn Left";
-      case ChallengeType.FACE_RIGHT:
+      case ChallengeTypes.FACE_RIGHT:
         return "Turn Right";
-      case ChallengeType.FACE_UP:
+      case ChallengeTypes.FACE_UP:
         return "Look Up";
-      case ChallengeType.FACE_DOWN:
+      case ChallengeTypes.FACE_DOWN:
         return "Look Down";
-      case ChallengeType.BLINK:
+      case ChallengeTypes.BLINK:
         return "Blink";
       default:
         return "";
@@ -185,7 +209,7 @@ const LiveFaceDetector: React.FC = () => {
 
     // Get the current time for verification timing
     const now = performance.now();
-    if (currentChallenge === ChallengeType.BLINK && now - lastVerificationTimeRef.current < 1000) {
+    if (currentChallenge === ChallengeTypes.BLINK && now - lastVerificationTimeRef.current < 1000) {
       return false;
     }
 
@@ -204,25 +228,25 @@ const LiveFaceDetector: React.FC = () => {
     // Check if face position is correct based on challenge type
     const checkPosition = (): boolean => {
       switch (currentChallenge) {
-        case ChallengeType.FACE_LEFT: {
+        case ChallengeTypes.FACE_LEFT: {
           const noseTip = landmarks[4];
           const noseOffset = (noseTip.x - faceCenterX) / faceWidth;
           return noseOffset > 0.5;
         }
-        case ChallengeType.FACE_RIGHT: {
+        case ChallengeTypes.FACE_RIGHT: {
           const noseTip = landmarks[4];
           const noseOffset = (noseTip.x - faceCenterX) / faceWidth;
           return noseOffset < -0.5;
         }
-        case ChallengeType.FACE_UP: {
+        case ChallengeTypes.FACE_UP: {
           const angle = calculateVerticalAngle();
           return angle < -0.3; // Threshold for looking up
         }
-        case ChallengeType.FACE_DOWN: {
+        case ChallengeTypes.FACE_DOWN: {
           const angle = calculateVerticalAngle();
           return angle > 0.06; // Threshold for looking down
         }
-        case ChallengeType.BLINK: {
+        case ChallengeTypes.BLINK: {
           const leftBlink = getBlendshapeValue(blendshapes, BlendshapeNames.LEFT_EYE_BLINK);
           const rightBlink = getBlendshapeValue(blendshapes, BlendshapeNames.RIGHT_EYE_BLINK);
           return leftBlink > 0.5 && rightBlink > 0.5;
@@ -235,7 +259,7 @@ const LiveFaceDetector: React.FC = () => {
     const isInCorrectPosition = checkPosition();
 
     // For all face movement challenges except blink
-    if (currentChallenge !== ChallengeType.BLINK) {
+    if (currentChallenge !== ChallengeTypes.BLINK) {
       if (checkPositionOnly) {
         return isInCorrectPosition;
       }
@@ -248,17 +272,17 @@ const LiveFaceDetector: React.FC = () => {
     }
 
     // For blink challenge
-    return currentChallenge === ChallengeType.BLINK && isInCorrectPosition;
+    return currentChallenge === ChallengeTypes.BLINK && isInCorrectPosition;
   };
 
   // Function to generate random challenges
   const generateRandomChallenges = (): void => {
     const allChallengeTypes = [
-      ChallengeType.FACE_LEFT,
-      ChallengeType.FACE_RIGHT,
-      ChallengeType.FACE_UP,
-      ChallengeType.FACE_DOWN,
-      ChallengeType.BLINK
+      ChallengeTypes.FACE_LEFT,
+      ChallengeTypes.FACE_RIGHT,
+      ChallengeTypes.FACE_UP,
+      ChallengeTypes.FACE_DOWN,
+      ChallengeTypes.BLINK
     ];
 
     // Shuffle all challenges and pick first 3
@@ -414,7 +438,7 @@ const LiveFaceDetector: React.FC = () => {
 
               // Calculate current progress for face movement challenges
               let currentProgress = 0;
-              if (currentChallenge !== ChallengeType.BLINK) {
+              if (currentChallenge !== ChallengeTypes.BLINK) {
                 // Check if face is in correct position without completing the challenge
                 const isCorrectPos = verifyChallenge(results, true);
                 if (isCorrectPos) {
@@ -502,59 +526,45 @@ const LiveFaceDetector: React.FC = () => {
   }, [isWebcamEnabled, faceLandmarker, progress, isFaceInBounds, runningMode, challenges, currentChallengeIndex]);
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle>Face Challenge Verification</CardTitle>
-      </CardHeader>
-      <CardContent className="w-full">
-        <div className="w-full space-y-4">
-          {error && (
-            <div className="p-4 bg-destructive/10 text-destructive rounded-lg">
-              <p>{error}</p>
+    <div className="w-full space-y-4">
+      {error && (
+        <div className="p-4 bg-destructive/10 text-destructive rounded-lg">
+          <p>{error}</p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <div className="relative h-[480px] bg-muted rounded-lg flex items-center justify-center">
+          <video
+            ref={videoRef}
+            className={`absolute inset-0 w-full h-full object-contain rounded-lg ${!isWebcamEnabled ? "hidden" : ""} scale-x-[-1]`}
+            playsInline
+          />
+          <canvas
+            ref={canvasRef}
+            className={`absolute inset-0 w-full h-full ${!isWebcamEnabled ? "hidden" : ""}`}
+            style={{ pointerEvents: "none" }}
+          />
+          {!isWebcamEnabled && !verificationComplete && (
+            <p className="text-muted-foreground">Click Start to begin verification</p>
+          )}
+          {verificationComplete && (
+            <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
+              <p className="text-3xl font-bold text-green-500">All Challenges Complete!</p>
             </div>
           )}
-
-          <div className="space-y-2">
-            <div className="relative h-[480px] bg-muted rounded-lg flex items-center justify-center">
-              <video
-                ref={videoRef}
-                className={`absolute inset-0 w-full h-full object-contain rounded-lg ${!isWebcamEnabled ? "hidden" : ""} scale-x-[-1]`}
-                playsInline
-              />
-              <canvas
-                ref={canvasRef}
-                className={`absolute inset-0 w-full h-full ${!isWebcamEnabled ? "hidden" : ""}`}
-                style={{ pointerEvents: "none" }}
-              />
-              {!isWebcamEnabled && !verificationComplete && (
-                <p className="text-muted-foreground">Webcam not enabled</p>
-              )}
-              {verificationComplete && (
-                <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
-                  <p className="text-3xl font-bold text-green-500">Verification Complete!</p>
-                </div>
-              )}
-            </div>
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => {
-                if (verificationComplete) {
-                  setVerificationComplete(false);
-                  generateRandomChallenges();
-                }
-                enableWebcam();
-              }}
-              disabled={isWebcamEnabled || isLoading}
-            >
-              <Camera className="mr-2 h-4 w-4" />
-              {isLoading ? "Initializing..." :
-                verificationComplete ? "Start New Verification" : "Start Verification"}
-            </Button>
-          </div>
         </div>
-      </CardContent>
-    </Card>
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={enableWebcam}
+          disabled={isWebcamEnabled || isLoading || verificationComplete}
+        >
+          <Camera className="mr-2 h-4 w-4" />
+          {isLoading ? "Initializing..." : verificationComplete ? "Verification Complete" : "Start Verification"}
+        </Button>
+      </div>
+    </div>
   );
 };
 

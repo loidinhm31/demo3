@@ -1,10 +1,11 @@
 import eslint from '@eslint/js';
 import tseslint from '@typescript-eslint/eslint-plugin';
+import tsParser from '@typescript-eslint/parser';
+import importPlugin from 'eslint-plugin-import';
+import prettierPlugin from 'eslint-plugin-prettier';
+import reactPlugin from 'eslint-plugin-react';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
 import unusedImports from 'eslint-plugin-unused-imports';
-import importPlugin from 'eslint-plugin-import';
-import reactPlugin from 'eslint-plugin-react';
-import prettierPlugin from 'eslint-plugin-prettier';
 
 export default [
     {
@@ -22,13 +23,39 @@ export default [
             prettier: prettierPlugin,
         },
         languageOptions: {
+            globals: {
+                window: true,
+                document: true,
+                navigator: true,
+                URLSearchParams: true,
+                URL: true,
+                performance: true,
+                HTMLCanvasElement: true,
+                HTMLImageElement: true,
+                HTMLVideoElement: true,
+                MediaStream: true,
+                cancelAnimationFrame: true,
+                requestAnimationFrame: true,
+                console: true,
+                Image: true,
+                setTimeout: true
+            },
             ecmaVersion: 'latest',
             sourceType: 'module',
-            parser: tseslint.parser,
+            parser: tsParser,
             parserOptions: {
                 ecmaFeatures: {
                     jsx: true,
                 },
+                ecmaVersion: 'latest',
+                sourceType: 'module',
+                project: ['./tsconfig.json'], // Add reference to your TypeScript config
+                tsconfigRootDir: '.',
+            },
+        },
+        settings: {
+            react: {
+                version: 'detect',
             },
         },
         rules: {
