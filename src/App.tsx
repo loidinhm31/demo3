@@ -1,16 +1,17 @@
+import { Separator } from "@radix-ui/react-separator";
+import { Loader2 } from "lucide-react";
+import React, { Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+
+import { AppSidebar } from "@/components/app-sidebar";
+import ProtectedRoute from "@/components/protected-route";
+import { ThemeProvider } from "@/components/theme-provider";
+import { Card, CardContent } from "@/components/ui/card";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/context/auth-context";
 import { getRoutes } from "@/core/route-config";
-import ProtectedRoute from "@/components/protected-route";
-import { Toaster } from "@/components/ui/toaster";
-import { ThemeProvider } from "@/components/theme-provider";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
 
-// Lazy load components
-import { Suspense } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -19,7 +20,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from "./components/ui/breadcrumb";
-import { Separator } from "@radix-ui/react-separator";
+import OAuth2RedirectHandler from "@/components/oauth2-redirect-handler";
 
 const LoadingFallback = () => (
   <div className="flex h-screen w-full items-center justify-center">
@@ -73,6 +74,7 @@ export default function App() {
           <Suspense fallback={<LoadingFallback />}>
             <Routes>
               <Route path="/" element={<Navigate to="/home" replace />} />
+              <Route path="/oauth2/redirect" element={<OAuth2RedirectHandler />} />
               {getRoutes().map((route) => {
                 const Component = route.component;
                 return (

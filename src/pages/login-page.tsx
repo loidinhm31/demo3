@@ -1,18 +1,22 @@
-import { memo, useCallback, useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/context/auth-context";
-import { LoginRequest } from "@/types/auth";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { jwtDecode } from "jwt-decode";
+import { memo, useState } from "react";
+import { useForm } from "react-hook-form";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import * as z from "zod";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/context/auth-context";
+import { APP_API_URL } from "@/env";
+import { useToast } from "@/hooks/use-toast";
+import axiosInstance from "@/services/axios.config";
+import { JwtPayload } from "@/types/auth";
+
 const loginSchema = z.object({
-  email: z.string().min(1, "Email is required").email("Invalid email format"),
+  username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required")
 });
 
@@ -21,47 +25,76 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 const LoginPage = memo(() => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, user } = useAuth();
+  const { setToken, token } = useAuth();
   const { toast } = useToast();
+
+  const [step, setStep] = useState(1);
+  const [jwtToken, setJwtToken] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const from = location.state?.from?.pathname || "/dashboard";
 
-  const form = useForm<LoginFormValues>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors }
+  } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "",
+      username: "",
       password: ""
     }
   });
 
-  useEffect(() => {
-    if (user) {
-      navigate(from, { replace: true });
-    }
-  }, [user, navigate, from]);
+  const handleSuccessfulLogin = (token, decodedToken) => {
+    const user = {
+      username: decodedToken.sub,
+      roles: decodedToken.roles ? decodedToken.roles.split(",") : []
+    };
+    window.localStorage.setItem("JWT_TOKEN", token);
+    window.localStorage.setItem("USER", JSON.stringify(user));
 
-  const handleGoogleLogin = useCallback(() => {
-    const currentUrl = encodeURIComponent(window.location.origin + "/oauth2/callback");
-    window.location.assign(`http://localhost:8080/oauth2/authorization/google?redirect_uri=${currentUrl}`);
-  }, []);
+    //store the token on the context state  so that it can be shared any where in our application by context provider
+    setToken(token);
 
-  const handleSubmit = async (values: LoginFormValues) => {
+    navigate("/notes");
+  };
+
+  const onLoginHandler = async (values: LoginFormValues) => {
     setIsLoading(true);
     try {
-      await login(values as LoginRequest);
+      const response = await axiosInstance.post("/auth/public/signin", values);
       toast({
         title: "Success",
         description: "Login successful! Redirecting..."
       });
+
+      reset();
+
+      if (response.status === 200 && response.data.jwtToken) {
+        setJwtToken(response.data.jwtToken);
+        const decodedToken = jwtDecode<JwtPayload>(response.data.jwtToken);
+        if (decodedToken.is2faEnabled) {
+          setStep(2); // Move to 2FA verification step
+        } else {
+          handleSuccessfulLogin(response.data.jwtToken, decodedToken);
+        }
+      } else {
+        toast({
+          title: "Error",
+          description: "Login failed. Please check your credentials and try again."
+        });
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Login failed";
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: message
-      });
-      form.reset({ email: values.email, password: "" });
+      if (error) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Invalid credentials"
+        });
+      }
+      reset({ username: values.username, password: "" });
     } finally {
       setIsLoading(false);
     }
@@ -78,14 +111,11 @@ const LoginPage = memo(() => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+            <form onSubmit={handleSubmit(onLoginHandler)} className="space-y-6">
               <div className="grid gap-6">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={handleGoogleLogin}
-                  disabled={isLoading}
+                <Link
+                  to={`${APP_API_URL}/oauth2/authorization/google`}
+                  className="flex gap-1 items-center justify-center flex-1 border p-2 shadow-sm shadow-slate-200 rounded-md hover:bg-slate-300 transition-all duration-300"
                 >
                   <svg className="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path
@@ -93,8 +123,10 @@ const LoginPage = memo(() => {
                       fill="currentColor"
                     />
                   </svg>
-                  Login with Google
-                </Button>
+                  <span className="font-semibold sm:text-customText text-xs">
+                    Login with Google
+                  </span>
+                </Link>
 
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
@@ -111,15 +143,14 @@ const LoginPage = memo(() => {
                   <div className="grid gap-2">
                     <Label htmlFor="email">Email</Label>
                     <Input
-                      {...form.register("email")}
-                      id="email"
-                      type="email"
-                      placeholder="m@example.com"
+                      {...register("username")}
+                      id="username"
+                      type="text"
                       disabled={isLoading}
                     />
-                    {form.formState.errors.email && (
+                    {errors.username && (
                       <p className="text-sm text-destructive">
-                        {form.formState.errors.email.message}
+                        {errors.username.message}
                       </p>
                     )}
                   </div>
@@ -137,14 +168,14 @@ const LoginPage = memo(() => {
                       </Button>
                     </div>
                     <Input
-                      {...form.register("password")}
+                      {...register("password")}
                       id="password"
                       type="password"
                       disabled={isLoading}
                     />
-                    {form.formState.errors.password && (
+                    {errors.password && (
                       <p className="text-sm text-destructive">
-                        {form.formState.errors.password.message}
+                        {errors.password.message}
                       </p>
                     )}
                   </div>

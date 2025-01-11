@@ -1,6 +1,4 @@
-"use client";
-
-import { BadgeCheck, Bell, ChevronsUpDown, CreditCard, LogOut, Sparkles } from "lucide-react";
+import { BadgeCheck, Bell, ChevronsUpDown, LogOut } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -27,25 +25,24 @@ export function NavUser({
   }
 }) {
   const { isMobile } = useSidebar();
-  const { logout } = useAuth();
+  const { token, setToken, setCurrentUser, isAdmin, setIsAdmin } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleLogout = async () => {
-    try {
-      await logout();
-      toast({
-        title: "Success",
-        description: "You have been logged out successfully."
-      });
-      navigate("/login");
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "There was a problem logging out."
-      });
-    }
+    localStorage.removeItem("JWT_TOKEN"); // Updated to remove token from localStorage
+    localStorage.removeItem("USER"); // Remove user details as well
+    localStorage.removeItem("CSRF_TOKEN");
+    localStorage.removeItem("IS_ADMIN");
+    setToken(null);
+    setCurrentUser(null);
+    setIsAdmin(false);
+
+    toast({
+      title: "Success",
+      description: "You have been logged out successfully."
+    });
+    navigate("/login");
   };
 
   return (

@@ -1,30 +1,23 @@
 import React from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "@/context/auth-context";
-import { Card } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
+  adminPage?: boolean;
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user, isLoading } = useAuth();
-  const location = useLocation();
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, adminPage }) => {
+  const { token, isAdmin } = useAuth();
 
-  if (isLoading) {
-    return (
-      <div className="h-screen w-full flex items-center justify-center">
-        <Card className="w-[300px] h-[200px] flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </Card>
-      </div>
-    );
+  //navigate to login page to an unauthenticated
+  if (!token) {
+    return <Navigate to="/login" />;
   }
 
-  if (!user) {
-    // Redirect to login page but save the attempted url
-    return <Navigate to="/login" state={{ from: location }} replace />;
+  //navigate to access-denied page if a user try to access the admin page
+  if (token && adminPage && !isAdmin) {
+    return <Navigate to="/access-denied" />;
   }
 
   return <>{children}</>;

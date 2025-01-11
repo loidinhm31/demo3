@@ -17,23 +17,21 @@ export interface AuthResponse {
   name: string;
 }
 
-export interface TokenRefreshRequest {
-  refreshToken: string;
-}
-
-export interface TokenRefreshResponse {
-  accessToken: string;
-  refreshToken: string;
-  tokenType: string;
-}
-
 export interface User {
   id: number;
   email: string;
   name: string;
-  provider: "LOCAL" | "GOOGLE";
+  provider: "EMAIL" | "GOOGLE";
   roles: string[];
   enabled: boolean;
   imageUrl?: string | null;
   providerId?: string | null;
+}
+
+export interface JwtPayload {
+  sub: string;
+  roles: string;
+  is2faEnabled?: boolean;
+  exp: number;
+  iat: number;
 }

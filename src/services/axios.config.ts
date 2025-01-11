@@ -1,42 +1,49 @@
-import axios, { AxiosHeaders, AxiosResponse, CreateAxiosDefaults, InternalAxiosRequestConfig } from "axios";
+import axios, { AxiosHeaders, AxiosResponse, CreateAxiosDefaults } from "axios";
 
-interface CustomInternalAxiosRequestConfig extends InternalAxiosRequestConfig {
-  _retry?: boolean;
-  skipAuthRefresh?: boolean;
-}
+import { APP_API_URL } from "@/env";
+
 
 const config: CreateAxiosDefaults = {
-  baseURL: "http://localhost:8080/api",
+  baseURL: `${APP_API_URL}/api`,
   headers: new AxiosHeaders({
     "Content-Type": "application/json",
+    Accept: "application/json"
   }),
-  withCredentials: true,
+  withCredentials: true
 };
 
 const axiosInstance = axios.create(config);
 
-// List of routes that should skip the refresh token attempt
-const skipAuthRefreshRoutes = ["/auth/login", "/auth/register", "/auth/refresh"];
-
 // Add a request interceptor
 axiosInstance.interceptors.request.use(
-  (config: CustomInternalAxiosRequestConfig) => {
-    // Check if this route should skip auth refresh
-    const url = config.url || "";
-    const baseURL = config.baseURL || "";
-    const path = url.replace(baseURL, "");
-
-    config.skipAuthRefresh = skipAuthRefreshRoutes.some((route) => path.includes(route));
-
-    const token = localStorage.getItem("accessToken");
+  async (config) => {
+    const token = localStorage.getItem("JWT_TOKEN");
     if (token) {
-      config.headers.set("Authorization", `Bearer ${token}`);
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    let csrfToken = localStorage.getItem("CSRF_TOKEN");
+    if (!csrfToken) {
+      try {
+        const response = await axios.get(
+          `${APP_API_URL}/api/csrf-token`,
+          { withCredentials: true }
+        );
+        csrfToken = response.data.token;
+        localStorage.setItem("CSRF_TOKEN", csrfToken);
+      } catch (error) {
+        console.error("Failed to fetch CSRF token", error);
+      }
+    }
+
+    if (csrfToken) {
+      config.headers["X-XSRF-TOKEN"] = csrfToken;
     }
     return config;
   },
   (error) => {
     return Promise.reject(error);
-  },
+  }
 );
 
 // Add a response interceptor
@@ -49,7 +56,7 @@ axiosInstance.interceptors.response.use(
 
     // Re-throw the error to be caught by the service
     return Promise.reject(error);
-  },
+  }
 );
 
 export default axiosInstance;
